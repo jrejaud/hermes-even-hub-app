@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/input/dispatch";
 import { initialState, openAsk, reduce, barText, type AppState } from "../src/state/store";
 import { sessionsNew, sessionsSwitch, sessionsList, type HostItem, type SessionItem } from "../src/protocol";
-import { listRows, alertText, buildListView } from "../src/ui/views";
+import { listRows, alertText, buildListView, headerText } from "../src/ui/views";
+import { getTextWidth } from "@evenrealities/pretext";
 import { newSessionRows, sessionForListIndex } from "../src/ui/session-list";
 import { byteLength, clampToBudget, threadPages, VIEWPORT_BYTE_BUDGET } from "../src/ui/stream";
 
@@ -232,5 +233,46 @@ describe("the silent byte limit", () => {
     const out = clampToBudget(lines);
     expect(out).toContain("line 39");
     expect(out).not.toContain("line 0 ");
+  });
+});
+
+describe("things the firmware silently drops or clips", () => {
+  // Both of these shipped and were only found by LOOKING at the state gallery.
+  // They are cheap to assert and expensive to notice.
+
+  it("no user-facing string contains an emoji — the font has none and drops them silently", () => {
+    // A dropped glyph leaves a stray space and no error anywhere. The 🎤 in the
+    // recording bar rendered as nothing, on the one screen that most needs to
+    // be obvious at a glance.
+    const emoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+    const strings = [
+      ...(["idle", "recording", "transcribing", "review"] as const).map((phase) =>
+        barText({ ...loaded({ screen: "session", phase }) }),
+      ),
+      ...listRows(loaded(), 1_780_000_000),
+      alertText(reduce(loaded({ screen: "list" }), {
+        t: "activity", id: "ch/b", host: "ch", title: "t", preview: "p",
+      })),
+      headerText("ov", "a title"),
+    ];
+    for (const s of strings) expect(s, `emoji in ${JSON.stringify(s)}`).not.toMatch(emoji);
+  });
+
+  it("the header never runs under the connection dot, however long the title", () => {
+    // The dot owns x=540..576. Truncating the TITLE to the container width and
+    // then prepending a host tag overflows it: the line wraps, the 40px header
+    // has no room, and it lands on top of the body's first line.
+    const usable = 540 - 8;
+    const long = "You route an incoming email to at most ONE of a set of waiting cards, deciding by sender";
+    for (const host of [undefined, "ov", "chiba"]) {
+      const text = headerText(host, long);
+      expect(getTextWidth(text), `"${text}" overflows the header`).toBeLessThanOrEqual(usable);
+      expect(text).not.toContain("\n");
+    }
+  });
+
+  it("a short title is left intact rather than needlessly truncated", () => {
+    expect(headerText("ov", "deploy")).toBe("ov · deploy");
+    expect(headerText(undefined, "deploy")).toBe("deploy");
   });
 });

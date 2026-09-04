@@ -222,7 +222,7 @@ describe("reduce: transcript guard", () => {
 describe("barText", () => {
   const base = { ...initialState(), screen: "session" as const };
   it("recording / transcribing / review", () => {
-    expect(barText({ ...base, phase: "recording" })).toBe("🎤 recording…");
+    expect(barText({ ...base, phase: "recording" })).toBe("● recording · tap to stop");
     expect(barText({ ...base, phase: "transcribing" })).toBe("transcribing…");
     expect(barText({ ...base, phase: "review" })).toBe("tap = send · swipe↓ = redo");
   });

@@ -2,8 +2,15 @@ import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
 import type { AppState, StreamItem } from "../state/store";
 import { barText, connDot, isHistoryLoading } from "../state/store";
 import { IDS, setText, showAlertPage, showListPage, showLoadingPage } from "./render";
+import { getTextWidth } from "@evenrealities/pretext";
 import { LOADING_SESSIONS_ROW, newSessionRows, orderedSessions, sessionListRows, truncateTitle } from "./session-list";
 import { clampToBudget, currentThreadViewport, wrapTextLines } from "./stream";
+
+/**
+ * Usable width of the header text container: 540 wide, 4px padding each side.
+ * The connection dot owns x=540..576 and must never be written under.
+ */
+const HEADER_TEXT_WIDTH_PX = 540 - 8;
 
 export function truncateRow(title: string): string {
   return truncateTitle(title);
@@ -83,11 +90,25 @@ export async function renderAlert(bridge: EvenAppBridge, s: AppState): Promise<v
   await showAlertPage(bridge, alertText(s));
 }
 
+/**
+ * The header line, truncated as ONE string.
+ *
+ * Truncating the title alone and then prepending a host tag overflows the
+ * container: the text wraps onto a second line, which the 40px-high header has
+ * no room for, so it spills over the body's first line and the tail collides
+ * with the connection dot. Seen in the state gallery, 2026-09-04 (frame
+ * `15-session-long-title`) — and it is invisible until a title is long enough,
+ * which is why it survived a working demo.
+ */
+export function headerText(host: string | undefined, title: string): string {
+  const prefix = host ? `${host} · ` : "";
+  return prefix + truncateTitle(title, HEADER_TEXT_WIDTH_PX - getTextWidth(prefix));
+}
+
 export async function renderSession(bridge: EvenAppBridge, s: AppState): Promise<void> {
   const active = s.sessions.items.find((i) => i.id === s.sessions.active);
-  const title = active && active.title.trim() ? truncateRow(active.title) : "Claude Code";
-  const host = active?.host ? `${active.host} · ` : "";
-  await setText(bridge, IDS.header, `${host}${title}`);
+  const title = active && active.title.trim() ? active.title : "Claude Code";
+  await setText(bridge, IDS.header, headerText(active?.host, title));
   await setText(bridge, IDS.dot, connDot(s.conn));
 
   const body = isHistoryLoading(s)

@@ -1,4 +1,6 @@
 import { waitForEvenAppBridge, OsEventTypeList } from "@evenrealities/even_hub_sdk";
+import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
+import { FRAMES, GALLERY_ENABLED, GALLERY_NOW } from "./dev/gallery";
 import "./style.css";
 import { loadBridgeDefaults } from "./config";
 import { BridgeClient } from "./net/ws-client";
@@ -28,11 +30,51 @@ const fireAndForget = (p: Promise<unknown>): void => { void p.catch(() => {}); }
  */
 const LIST_SCROLL_GRACE_MS = 8_000;
 
+/**
+ * Render the state gallery instead of connecting to a bridge: one fixed screen
+ * per tap, so every state can be screenshotted and looked at. Dev-only, gated on
+ * VITE_UI_GALLERY. See src/dev/gallery.ts and scripts/ui-gallery.mjs.
+ */
+async function runGallery(bridge: EvenAppBridge): Promise<void> {
+  let i = 0;
+  let built: "text" | "list" | "session" | null = null;
+
+  const draw = async (): Promise<void> => {
+    const frame = FRAMES[i];
+    const s = frame.state;
+    if (s.screen === "list" && s.sessionsLoaded) {
+      built = "list";
+      await showListPage(bridge, buildListView(s, GALLERY_NOW).rows);
+    } else if (s.screen === "session") {
+      if (built !== "session") { await showSessionPage(bridge); built = "session"; }
+      await renderSession(bridge, s);
+    } else if (s.screen === "alert") {
+      built = "text";
+      await renderAlert(bridge, s);
+    } else {
+      built = "text";
+      await showLoadingPage(bridge, s.conn === "not configured" ? "Open phone app\nto configure bridge." : loadingText(s));
+    }
+    console.log(`[gallery] ${i + 1}/${FRAMES.length} ${frame.name} — ${frame.looking_for}`);
+  };
+
+  bridge.onEvenHubEvent(() => {
+    i = (i + 1) % FRAMES.length;
+    void draw();
+  });
+
+  await createLoadingStartup(bridge);
+  await draw();
+  console.log("[glasses] ready");
+}
+
 async function boot(): Promise<void> {
   const root = document.querySelector<HTMLElement>("#app");
   if (!root) throw new Error("Missing #app root");
 
   const bridge = await waitForEvenAppBridge();
+  if (GALLERY_ENABLED) return runGallery(bridge);
+
   const defaults = loadBridgeDefaults();
   let profile = await loadConnectionProfile(bridge);
   let state: AppState = initialState();
