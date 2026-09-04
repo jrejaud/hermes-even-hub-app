@@ -241,7 +241,7 @@ export class SessionPump {
     if (!uuid) return false;
 
     const items = await this.historyItemsSafe();
-    if (!(await this.terminal.send(uuid, text, this.host.key))) {
+    if (!(await this.terminal.send(uuid, text, this.host.key, this.sessionId))) {
       this.terminal.invalidate(this.sessionId, this.host.key);
       this.log(`[pump] terminal send failed — falling back to even-terminal`);
       return false;

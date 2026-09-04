@@ -46,8 +46,18 @@ export class TerminalRouter {
    *   that is absent (or null) has no terminals to route to — a Linux VPS has no
    *   iTerm — and always falls through to even-terminal.
    */
-  constructor({ hosts = {}, log = () => {} } = {}) {
+  constructor({ hosts = {}, agents = {}, log = () => {} } = {}) {
     this.hosts = hosts;
+    /**
+     * hostKey -> {url, token} of that machine's tab-agent.
+     *
+     * PREFERRED over ssh, and on macOS it is the only thing that works: driving
+     * iTerm needs an Apple event, and an ssh session is not authorized to send
+     * one (`-1743`). That is TCC — a remote shell is structurally outside the
+     * GUI session that owns the app — so the send has to originate from a
+     * process already inside it. See bridge/tab-agent.mjs.
+     */
+    this.agents = agents;
     this.log = log;
     /** @type {Map<string,{at:number, uuid:string|null}>} */
     this.cache = new Map();
@@ -55,7 +65,31 @@ export class TerminalRouter {
 
   /** True when this host has terminals worth asking about at all. */
   handles(hostKey) {
+    if (this.agents[hostKey]) return true;
     return Object.prototype.hasOwnProperty.call(this.hosts, hostKey) && this.hosts[hostKey] !== null;
+  }
+
+  async agentFetch(agent, path, init = {}) {
+    try {
+      const res = await fetch(`${agent.url.replace(/\/$/, "")}${path}`, {
+        ...init,
+        headers: { Authorization: `Bearer ${agent.token}`, ...(init.headers ?? {}) },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const text = await res.text();
+      return { ok: res.ok, status: res.status, body: text ? JSON.parse(text) : {} };
+    } catch (err) {
+      return { ok: false, status: 0, body: {}, error: err.message };
+    }
+  }
+
+  async agentTab(agent, sessionId) {
+    const r = await this.agentFetch(agent, `/tab?session=${encodeURIComponent(sessionId)}`);
+    if (!r.ok) {
+      this.log(`[terminal] tab-agent unreachable: ${r.error ?? r.status}`);
+      return null;
+    }
+    return r.body.uuid ?? null;
   }
 
   /** Run a command on whichever machine owns that host's tabs. */
@@ -78,6 +112,13 @@ export class TerminalRouter {
     const key = `${hostKey}/${sessionId}`;
     const hit = this.cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_MS) return hit.uuid;
+
+    const agent = this.agents[hostKey];
+    if (agent) {
+      const uuid = await this.agentTab(agent, sessionId);
+      this.cache.set(key, { at: Date.now(), uuid });
+      return uuid;
+    }
 
     // `open` must be true AND the process must still be alive: a session killed
     // with SIGKILL never fires SessionEnd, so the registry alone is not evidence.
@@ -109,7 +150,22 @@ export class TerminalRouter {
    * speech and will eventually contain a quote, a backtick or a newline, and a
    * transcription is not something to hand to a shell as a literal.
    */
-  async send(uuid, text, hostKey) {
+  async send(uuid, text, hostKey, sessionId) {
+    const agent = this.agents[hostKey];
+    if (agent) {
+      const r = await this.agentFetch(agent, "/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionId, text }),
+      });
+      if (!r.ok) {
+        this.log(`[terminal] tab-agent send failed: ${r.body.error ?? r.error ?? r.status}`);
+        return false;
+      }
+      this.log(`[terminal] typed into tab ${uuid}: ${text.slice(0, 60)}`);
+      return true;
+    }
+
     const remoteFile = `/tmp/g2-utterance-${Date.now()}.txt`;
     const ssh = this.hosts[hostKey];
     const write = ssh

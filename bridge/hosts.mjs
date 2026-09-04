@@ -52,7 +52,14 @@ export function loadHosts(path, env = process.env) {
       token: resolveToken(h, env),
       provider: h.provider ?? "claude",
       // How this machine reaches that host's terminals. Absent = it has none.
+      // `tabAgentUrl` is the preferred route and the only one that works on
+      // macOS; `terminalSsh` is the fallback for a host where ssh can drive the
+      // terminal directly.
       terminalSsh: h.terminalSsh,
+      tabAgentUrl: h.tabAgentUrl,
+      tabAgentTokenEnv: h.tabAgentTokenEnv,
+      tabAgentTokenOp: h.tabAgentTokenOp,
+      tabAgentToken: h.tabAgentToken,
     };
   });
 }

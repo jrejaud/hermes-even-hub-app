@@ -21,3 +21,5 @@ bridge/.env
 
 # UI gallery captures — regenerate with `npm run ui:capture`
 docs/ui/*.png
+
+bridge/.env.tab-agent

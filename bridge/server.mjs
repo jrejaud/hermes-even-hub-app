@@ -57,12 +57,25 @@ const stt = createTranscriber(process.env, { log, hostNames: fleet.hostList().ma
  * terminals to route to (a Linux VPS has no iTerm) and always uses even-terminal.
  * `""` means "this machine".
  */
+const hostCfg = loadHosts(HOSTS_FILE);
 const terminal = new TerminalRouter({
-  hosts: Object.fromEntries(
-    loadHosts(HOSTS_FILE).flatMap((h) => (h.terminalSsh === undefined ? [] : [[h.key, h.terminalSsh]])),
+  hosts: Object.fromEntries(hostCfg.flatMap((h) => (h.terminalSsh === undefined ? [] : [[h.key, h.terminalSsh]]))),
+  // A tab-agent is the only thing that works on macOS: driving iTerm needs an
+  // Apple event, and an ssh session is not authorized to send one. See
+  // bridge/tab-agent.mjs.
+  agents: Object.fromEntries(
+    hostCfg.flatMap((h) =>
+      h.tabAgentUrl ? [[h.key, { url: h.tabAgentUrl, token: resolveTabAgentToken(h) }]] : [],
+    ),
   ),
   log,
 });
+
+function resolveTabAgentToken(h) {
+  if (h.tabAgentTokenEnv && process.env[h.tabAgentTokenEnv]) return process.env[h.tabAgentTokenEnv];
+  if (h.tabAgentTokenOp) return readOp(h.tabAgentTokenOp);
+  return h.tabAgentToken ?? "";
+}
 
 const httpServer = http.createServer((req, res) => {
   if (req.url?.startsWith("/health")) {
