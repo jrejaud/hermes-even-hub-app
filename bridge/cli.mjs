@@ -19,7 +19,13 @@
 import { WebSocket } from "ws";
 import { readOp } from "./hosts.mjs";
 
-const URL_ = process.env.BRIDGE_URL ?? `ws://127.0.0.1:${process.env.BRIDGE_PORT ?? 8791}`;
+const argvRaw = process.argv.slice(2);
+const urlFlag = argvRaw.indexOf("--url");
+/** `--url` targets a deployed bridge; without it, the local one. */
+const URL_ =
+  (urlFlag >= 0 ? argvRaw[urlFlag + 1] : undefined) ??
+  process.env.BRIDGE_URL ??
+  `ws://127.0.0.1:${process.env.BRIDGE_PORT ?? 8791}`;
 const HTTP = URL_.replace(/^ws/, "http");
 
 /**
