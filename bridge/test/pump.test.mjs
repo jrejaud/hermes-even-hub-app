@@ -116,9 +116,30 @@ test("the first prompt of a session spawns it and carries the lens preamble", as
   const prompt = ov.calls.find((c) => c.path === "/api/prompt");
   assert.equal(prompt.body.sessionId, undefined);
   assert.match(prompt.body.text, /576x288 monochrome/);
-  assert.match(prompt.body.text, /what is running$/);
+  // The wearer's words come FIRST. even-terminal titles a session from the
+  // opening characters of its first prompt, so a leading preamble gave every
+  // glasses-spawned session the same unusable title (2026-09-04).
+  assert.ok(prompt.body.text.startsWith("what is running"), `title would be: ${prompt.body.text.slice(0, 40)}`);
   assert.equal(h.of("active").at(-1).id, "ov/sess-1");
   h.pump.detach();
+});
+
+test("a glasses-spawned session is titled by what the wearer said", async (t) => {
+  const ov = await startFakeEvenTerminal();
+  t.after(() => ov.close());
+
+  const h = harness([ov]);
+  h.pump.armNew("ov");
+  await h.pump.handleText("check the deploy status");
+  h.pump.detach();
+
+  // The fake titles a session the way even-terminal does — from the prompt.
+  const { fleet } = harness([ov]);
+  const items = await fleet.sessions({ force: true });
+  assert.ok(
+    !items[0].title.includes("Even Realities G2"),
+    `title leaked the preamble: ${items[0].title}`,
+  );
 });
 
 test("follow-up prompts reuse the session and drop the preamble", async (t) => {
@@ -334,6 +355,58 @@ test("activity on another host fires a notification carrying a real preview", as
   assert.equal(event.host, "ch");
   assert.equal(event.preview, "Build green in 4m12s.");
   assert.ok(event.finished, "busy -> idle is the transition worth a tap");
+});
+
+test("a session still mid-turn is NOT news — no alert until it comes to rest", async (t) => {
+  const ov = await startFakeEvenTerminal();
+  t.after(() => ov.close());
+  ov.seed("long", { title: "long turn", state: "busy" });
+
+  const { fleet } = harness([ov]);
+  const watcher = new ActivityWatcher(fleet, { intervalMs: 30 });
+  const seen = [];
+  watcher.onActivity((e) => seen.push(e));
+  t.after(() => watcher.stop());
+
+  watcher.start();
+  await sleep(120);
+
+  // A long turn ticks its timestamp every few seconds. Notifying on each tick
+  // put three identical alerts on the lens inside ninety seconds (2026-09-04).
+  for (let i = 0; i < 4; i++) {
+    ov.push("long", { type: "text_delta", text: "still going " });
+    ov.setState("long", "busy");
+    await sleep(60);
+  }
+  assert.deepEqual(seen, [], "no alert while it is still working");
+
+  ov.push("long", { type: "result", success: true, text: "Done at last." });
+  const event = await until(() => seen.find((e) => e.id === "ov/long"), 3_000);
+  assert.equal(event.preview, "Done at last.");
+  assert.equal(seen.length, 1, "exactly one alert, when it finished");
+});
+
+test("a session that flickers cannot machine-gun the lens", async (t) => {
+  const ov = await startFakeEvenTerminal();
+  t.after(() => ov.close());
+  ov.seed("flap", { title: "flapping" });
+
+  const { fleet } = harness([ov]);
+  const watcher = new ActivityWatcher(fleet, { intervalMs: 20, cooldownMs: 5_000 });
+  const seen = [];
+  watcher.onActivity((e) => seen.push(e));
+  t.after(() => watcher.stop());
+
+  watcher.start();
+  await sleep(80);
+  for (let i = 0; i < 5; i++) {
+    ov.setState("flap", "busy");
+    await sleep(40);
+    ov.push("flap", { type: "result", success: true, text: `round ${i}` });
+    await sleep(40);
+  }
+  await sleep(150);
+  assert.equal(seen.length, 1, `cooldown held it to one alert, got ${seen.length}`);
 });
 
 test("the watcher does not fire for sessions that existed before it started", async (t) => {

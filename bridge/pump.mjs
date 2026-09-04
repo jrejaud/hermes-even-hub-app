@@ -14,7 +14,7 @@
  */
 
 import { active as activeFrame, askDone, error as errorFrame, history as historyFrame } from "./protocol.mjs";
-import { framesFor, historyItems } from "./translate.mjs";
+import { framesFor, historyItems, withPreamble } from "./translate.mjs";
 import { carriedCorrection, isResetUtterance, isStatusUtterance, permissionDecision, stripWakeWord } from "./answer.mjs";
 import { isDeadSession } from "./even-terminal.mjs";
 
@@ -22,18 +22,9 @@ const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 400);
 /** Two identical utterances this close together are one utterance, sent twice. */
 const DEDUPE_WINDOW_MS = Number(process.env.DEDUPE_WINDOW_MS ?? 6_000);
 
-/**
- * Sent once per session, never per turn. Without it the agent answers as if it
- * were in a terminal — markdown, bullet lists and fenced code all render as
- * literal characters on the lens and burn the 10 visible lines.
- */
-export const LENS_PREAMBLE =
-  "[You are being read on Even Realities G2 smart glasses: a 576x288 monochrome " +
-  "heads-up display showing about 10 short lines at a time, read at a glance. Reply in " +
-  "plain text. No markdown, no bullet lists, no tables, no code fences — those characters " +
-  "render literally and waste the screen. Keep answers to a few short sentences unless " +
-  "asked for more. The wearer answers by SPEAKING, so if you need a decision use " +
-  "AskUserQuestion with short, distinct, easily-spoken option labels.]\n\n";
+// LENS_PREAMBLE / withPreamble / stripPreamble live in translate.mjs, next to
+// the history mapping that has to take the preamble back out again.
+export { LENS_PREAMBLE, withPreamble } from "./translate.mjs";
 
 export class SessionPump {
   /**
@@ -186,7 +177,7 @@ export class SessionPump {
     }
     this.lastPrompt = { text, at: now };
 
-    const body = this.sessionId ? text : LENS_PREAMBLE + text;
+    const body = this.sessionId ? text : withPreamble(text);
     let spawned;
     try {
       spawned = await this.host.prompt(body, this.sessionId ?? undefined);
@@ -195,7 +186,7 @@ export class SessionPump {
         this.log(`[pump] session ${this.sessionId} is gone — starting a fresh one`);
         this.sessionId = null;
         this.lastSeenId = 0;
-        spawned = await this.host.prompt(LENS_PREAMBLE + text).catch((e) => {
+        spawned = await this.host.prompt(withPreamble(text)).catch((e) => {
           this.emit(errorFrame(e.message));
           return null;
         });

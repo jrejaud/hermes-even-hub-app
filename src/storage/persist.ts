@@ -62,6 +62,24 @@ export async function saveConnectionProfile(
   return next;
 }
 
+/**
+ * Build-time bridge defaults, adopted ONLY when nothing is stored yet and ONLY
+ * in a dev build. Without this the simulator always boots to "Open phone app to
+ * configure bridge", which makes automated verification impossible — there is no
+ * phone in the simulator to open.
+ *
+ * `import.meta.env.DEV` is false for `vite build`, so a packed `.ehpk` can never
+ * carry a token even if `.env.local` exists on the machine that packed it. That
+ * matters: anyone with the package can extract whatever is bundled in it.
+ */
+function devDefaultProfile(): ConnectionProfile | null {
+  if (!import.meta.env.DEV) return null;
+  const url = import.meta.env.VITE_BRIDGE_URL ?? "";
+  const token = import.meta.env.VITE_BRIDGE_TOKEN ?? "";
+  if (!url || !token) return null;
+  return { url, token, updatedAt: Date.now() };
+}
+
 export async function loadConnectionProfile(bridge: EvenAppBridge): Promise<ConnectionProfile | null> {
   for (const key of [KEYS.profile, KEYS.legacyProfile]) {
     const stored = await bridge.getLocalStorage(key);
@@ -72,14 +90,16 @@ export async function loadConnectionProfile(bridge: EvenAppBridge): Promise<Conn
 
   const url = await bridge.getLocalStorage(KEYS.oldUrl);
   const activeSession = await bridge.getLocalStorage(KEYS.oldSession);
-  if (!url) return null;
+  if (url) {
+    return {
+      url,
+      token: "",
+      activeSession: activeSession || undefined,
+      updatedAt: Date.now(),
+    };
+  }
 
-  return {
-    url,
-    token: "",
-    activeSession: activeSession || undefined,
-    updatedAt: Date.now(),
-  };
+  return devDefaultProfile();
 }
 
 export async function updateActiveSession(

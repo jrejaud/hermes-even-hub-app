@@ -30,7 +30,18 @@ export const SAMPLE_RATE = 16_000;
 /** Shortest clip worth sending. Below this it is a mis-tap, not speech. */
 const MIN_SAMPLES = SAMPLE_RATE * 0.3;
 
-export function createTranscriber(env = process.env, { log = () => {} } = {}) {
+/**
+ * Whisper mishears the proper nouns this app is made of — "Chiba" came back as
+ * "Shiba" on the first live clip. An initial prompt biases the decoder toward
+ * vocabulary it would otherwise never guess, and the host names are the one
+ * vocabulary the bridge always knows.
+ */
+export function vocabularyHint(hostNames = []) {
+  const base = ["Claude Code", "Linear", "Tailscale", "Even Realities", "commit", "deploy", "repo", "session"];
+  return `Terms that may appear: ${[...hostNames, ...base].join(", ")}.`;
+}
+
+export function createTranscriber(env = process.env, { log = () => {}, hostNames = [] } = {}) {
   const engine = env.STT_ENGINE ?? (env.WHISPER_MODEL ? "whispercpp" : "none");
   if (engine === "whispercpp") {
     return whisperCppTranscriber(
@@ -39,6 +50,7 @@ export function createTranscriber(env = process.env, { log = () => {} } = {}) {
         model: env.WHISPER_MODEL,
         threads: env.WHISPER_THREADS ?? "4",
         language: env.WHISPER_LANGUAGE ?? "en",
+        prompt: env.WHISPER_PROMPT ?? vocabularyHint(hostNames),
       },
       log,
     );
@@ -79,6 +91,7 @@ function whisperCppTranscriber(cfg, log) {
           "-t", String(cfg.threads),
           "-nt",  // no timestamps
           "-np",  // results only, nothing else on stdout
+          ...(cfg.prompt ? ["--prompt", cfg.prompt] : []),
         ]);
         return cleanTranscript(out);
       } catch (err) {

@@ -4,7 +4,7 @@ import { loadBridgeDefaults } from "./config";
 import { BridgeClient } from "./net/ws-client";
 import { initialState, reduce, type AppState } from "./state/store";
 import { createLoadingStartup, createSetupStartup, showListPage, showLoadingPage, showSessionPage } from "./ui/render";
-import { loadingText, renderAlert, renderSession, listRows } from "./ui/views";
+import { loadingText, renderAlert, renderSession, buildListView, type ListView } from "./ui/views";
 import { renderPhoneSetup } from "./ui/phone";
 import { routeEvent, type ListSelection } from "./input/router";
 import { dispatch, type Gesture, type Effect } from "./input/dispatch";
@@ -21,6 +21,13 @@ import {
 
 const fireAndForget = (p: Promise<unknown>): void => { void p.catch(() => {}); };
 
+/**
+ * How long after a scroll the list is treated as "being read", and rebuilds are
+ * held back. Long enough to page through 20 sessions without being yanked to the
+ * top by a notification; short enough that a list left alone catches up quickly.
+ */
+const LIST_SCROLL_GRACE_MS = 8_000;
+
 async function boot(): Promise<void> {
   const root = document.querySelector<HTMLElement>("#app");
   if (!root) throw new Error("Missing #app root");
@@ -31,7 +38,10 @@ async function boot(): Promise<void> {
   let state: AppState = initialState();
   let phoneErrors: string[] = [];
   let glassesView: "setup" | "list" = profileIsReady(profile) ? "list" : "setup";
-  let visibleListRows = listRows(state);
+  let shownList: ListView = buildListView(state);
+  let visibleListRows = shownList.rows;
+  /** When the wearer last scrolled the list — a rebuild while reading is hostile. */
+  let lastListScrollAt = 0;
   let helloOk = false;
   let sessionsRetryTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -62,10 +72,24 @@ async function boot(): Promise<void> {
         await showLoadingPage(bridge, loadingText(s));
         return;
       }
-      visibleListRows = listRows(s);
+      const next = buildListView(s);
+      // Lists cannot update in place — every list render is a full rebuild,
+      // and a rebuild throws away the native scroll position and selection.
+      // Two guards, because an activity notification re-renders the list and
+      // otherwise yanks the wearer back to the top mid-scroll:
+      //   1. identical rows → nothing to show, skip
+      //   2. scrolled in the last few seconds → they are reading, defer
+      const unchanged =
+        next.rows.length === shownList.rows.length && next.rows.every((r, i) => r === shownList.rows[i]);
+      const browsing = Date.now() - lastListScrollAt < LIST_SCROLL_GRACE_MS;
+      if (builtPage === "list" && (unchanged || browsing)) return;
+
+      // Only adopt the snapshot when we actually draw it: a tap is resolved
+      // against what is on screen, so a stale snapshot would open the wrong row.
+      shownList = next;
+      visibleListRows = next.rows;
       builtPage = "list";
-      // Lists cannot update in place — every list render is a rebuild.
-      await showListPage(bridge, visibleListRows);
+      await showListPage(bridge, next.rows);
       return;
     }
     if (builtPage !== "session") {
@@ -188,7 +212,11 @@ async function boot(): Promise<void> {
       return;
     }
 
-    const r = dispatch(state, g, index);
+    if (state.screen === "list" && (g === "scrollUp" || g === "scrollDown")) lastListScrollAt = Date.now();
+
+    // `shownList` is what the glasses are displaying right now; the tap index
+    // is meaningless against anything else.
+    const r = dispatch(state, g, index, shownList);
     state = r.state;
     for (const e of r.effects) runEffect(e);
     // Page construction lives in scheduleRender so gesture-driven and

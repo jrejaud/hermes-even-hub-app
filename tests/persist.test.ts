@@ -73,9 +73,27 @@ describe("connection profile persistence", () => {
     expect(typeof result?.updatedAt).toBe("number");
   });
 
-  it("returns null when no profile exists", async () => {
+  it("returns null when no profile exists and no dev defaults are set", async () => {
+    vi.stubEnv("VITE_BRIDGE_URL", "");
+    vi.stubEnv("VITE_BRIDGE_TOKEN", "");
     const bridge = makeBridge();
     await expect(loadConnectionProfile(bridge)).resolves.toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it("adopts .env.local defaults in a dev build so the simulator can connect", async () => {
+    // There is no phone in the simulator, so without this it always boots to
+    // "Open phone app to configure bridge" and cannot be verified at all.
+    // `import.meta.env.DEV` is false for `vite build`, so a packed .ehpk can
+    // never carry these — anyone with the package could extract a bundled token.
+    vi.stubEnv("VITE_BRIDGE_URL", "ws://127.0.0.1:8791");
+    vi.stubEnv("VITE_BRIDGE_TOKEN", "devtoken");
+    const bridge = makeBridge();
+    await expect(loadConnectionProfile(bridge)).resolves.toMatchObject({
+      url: "ws://127.0.0.1:8791",
+      token: "devtoken",
+    });
+    vi.unstubAllEnvs();
   });
 
   it("updates activeSession without changing url or token", async () => {

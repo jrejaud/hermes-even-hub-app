@@ -99,13 +99,49 @@ function isToolError(m) {
 }
 
 /**
+ * Sent once per session, never per turn, and APPENDED rather than prepended.
+ *
+ * even-terminal titles a session from the opening characters of its first
+ * prompt, so a prepended preamble made every glasses-spawned session show up in
+ * the list as "[You are being read on Even Realities G2 smart displa…" — the
+ * same useless title on every row (seen live, 2026-09-04). Trailing it keeps the
+ * wearer's own words as the title, and instructions at the end of a prompt are
+ * if anything better attended to.
+ */
+export const LENS_PREAMBLE =
+  "[You are being read on Even Realities G2 smart glasses: a 576x288 monochrome " +
+  "heads-up display showing about 10 short lines at a time, read at a glance. Reply in " +
+  "plain text. No markdown, no bullet lists, no tables, no code fences — those characters " +
+  "render literally and waste the screen. Keep answers to a few short sentences unless " +
+  "asked for more. The wearer answers by SPEAKING, so if you need a decision use " +
+  "AskUserQuestion with short, distinct, easily-spoken option labels.]";
+
+export const withPreamble = (text) => `${text}\n\n${LENS_PREAMBLE}`;
+
+/**
+ * Take the preamble back OUT when replaying a session's history.
+ *
+ * It is an instruction to the agent, not something the wearer said — and left in
+ * it ate most of a 10-line screen with the app lecturing itself about how to use
+ * the screen (seen live in the simulator, 2026-09-04). Matched loosely on the
+ * bracketed block so an older session written by a previous wording is cleaned
+ * up too.
+ */
+export function stripPreamble(text) {
+  return String(text)
+    .replace(/\[You are being read on Even Realities G2[\s\S]*?\]\s*$/i, "")
+    .replace(/^\s*\[You are (?:being read on|answering out loud on) [\s\S]*?\]\s*/i, "")
+    .trim();
+}
+
+/**
  * Disk history (`GET /api/sessions/:id/history` -> [{role,text}]) as thread items.
  * Used when opening an existing session, before the live pump takes over.
  */
 export function historyItems(history) {
   const items = [];
   for (const h of history ?? []) {
-    const text = (h.text ?? "").trim();
+    const text = (h.role === "user" ? stripPreamble(h.text ?? "") : (h.text ?? "")).trim();
     if (!text) continue;
     items.push(h.role === "user" ? { kind: "user", text } : { kind: "assistant", text });
   }

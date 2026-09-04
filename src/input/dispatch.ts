@@ -13,6 +13,22 @@ export type Effect =
 
 export interface DispatchResult { state: AppState; effects: Effect[]; }
 
+/**
+ * What the glasses are actually displaying, captured at render time.
+ *
+ * A tap arrives as an INDEX into the rows on screen, and the session list
+ * re-sorts by recency underneath us — every activity notification reorders it.
+ * Resolving that index against live state opens whatever sits there NOW, which
+ * after a reorder is not the row the wearer touched. So the index is resolved
+ * against the snapshot the wearer was looking at.
+ */
+export interface ListSnapshot {
+  /** Session id per row; null for a ＋New row. */
+  ids: (string | null)[];
+  /** Host key per ＋New row; null for a session row. */
+  hostKeys: (string | null)[];
+}
+
 const enterSession = (s: AppState, active: string | null): AppState => ({
   ...s, screen: "session", phase: "idle", stream: [], pending: null, turn: "idle",
   scrollPage: null,
@@ -20,7 +36,7 @@ const enterSession = (s: AppState, active: string | null): AppState => ({
   sessions: { ...s.sessions, active },
 });
 
-export function dispatch(s: AppState, g: Gesture, index?: number): DispatchResult {
+export function dispatch(s: AppState, g: Gesture, index?: number, shown?: ListSnapshot): DispatchResult {
   // The activity alert owns every gesture while it is up: tap goes straight to
   // the session that moved, anything else dismisses back to where you were.
   if (s.screen === "alert") {
@@ -45,18 +61,23 @@ export function dispatch(s: AppState, g: Gesture, index?: number): DispatchResul
       // A name lookup that found nothing yields -1. It must stay a no-op, not
       // fall into the ＋New branch and spawn a session nobody asked for.
       if (i < 0) return { state: s, effects: [] };
+
+      // Resolve against what was on screen when the wearer tapped. Falling back
+      // to live state keeps the old behaviour for a caller with no snapshot.
       const newRows = newSessionRows(s.hosts);
-      if (i < newRows.length) {
+      const id = shown ? shown.ids[i] : (sessionForListIndex(s.sessions.items, i, newRows.length)?.id ?? null);
+      const isNewRow = shown ? i < shown.ids.length && shown.ids[i] === null : i < newRows.length;
+
+      if (isNewRow) {
         // With several hosts each ＋New row names one, so choosing where a
         // session spawns costs no extra screen and no extra gesture.
-        const host = s.hosts.length > 1 ? s.hosts[i]?.key : undefined;
+        const host = shown ? (shown.hostKeys[i] ?? undefined) : (s.hosts.length > 1 ? s.hosts[i]?.key : undefined);
         return { state: enterSession(s, null), effects: [{ kind: "send", frame: sessionsNew(host) }] };
       }
-      const item = sessionForListIndex(s.sessions.items, i, newRows.length);
-      if (!item) return { state: s, effects: [] };
+      if (!id) return { state: s, effects: [] };
       return {
-        state: { ...enterSession(s, item.id), unread: s.unread.filter((id) => id !== item.id) },
-        effects: [{ kind: "send", frame: sessionsSwitch(item.id) }],
+        state: { ...enterSession(s, id), unread: s.unread.filter((u) => u !== id) },
+        effects: [{ kind: "send", frame: sessionsSwitch(id) }],
       };
     }
     if (g === "doubleClick") return { state: s, effects: [{ kind: "exit" }] };

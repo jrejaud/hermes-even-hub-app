@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/input/dispatch";
 import { initialState, openAsk, reduce, barText, type AppState } from "../src/state/store";
 import { sessionsNew, sessionsSwitch, sessionsList, type HostItem, type SessionItem } from "../src/protocol";
-import { listRows, alertText } from "../src/ui/views";
+import { listRows, alertText, buildListView } from "../src/ui/views";
 import { newSessionRows, sessionForListIndex } from "../src/ui/session-list";
 import { byteLength, clampToBudget, threadPages, VIEWPORT_BYTE_BUDGET } from "../src/ui/stream";
 
@@ -72,6 +72,41 @@ describe("multi-host session list", () => {
     const r = dispatch(loaded(), "click", 2);
     expect(r.state.screen).toBe("session");
     expect(r.effects).toEqual([{ kind: "send", frame: sessionsSwitch("ch/b") }]);
+  });
+
+  it("opens the row the wearer actually touched, even after the list re-sorts", () => {
+    // The list re-sorts by recency, and every activity notification reorders it.
+    // A tap arrives as an INDEX into the rows ON SCREEN, so resolving it against
+    // live state opens whatever moved into that slot — the wrong session.
+    const shown = buildListView(loaded());
+    expect(shown.ids).toEqual([null, null, "ch/b", "ov/a"]);
+
+    const reordered = loaded({
+      sessions: {
+        items: [
+          { id: "ov/a", title: "romhack build", updated: 1_780_000_500, host: "ov" },
+          { id: "ch/b", title: "deploy parakeet", updated: 1_780_000_000, host: "ch" },
+        ],
+        active: null,
+      },
+    });
+
+    // Row 2 still displays "deploy parakeet" — open that, not the row now sorted there.
+    const r = dispatch(reordered, "click", 2, shown);
+    expect(r.effects).toEqual([{ kind: "send", frame: sessionsSwitch("ch/b") }]);
+    expect(r.state.sessions.active).toBe("ch/b");
+
+    // Without the snapshot it resolves against live state and opens the wrong one.
+    expect(dispatch(reordered, "click", 2).effects).toEqual([
+      { kind: "send", frame: sessionsSwitch("ov/a") },
+    ]);
+  });
+
+  it("spawns on the host named by the ＋New row on screen", () => {
+    const shown = buildListView(loaded());
+    expect(dispatch(loaded(), "click", 1, shown).effects).toEqual([
+      { kind: "send", frame: sessionsNew("ch") },
+    ]);
   });
 
   it("keeps an unresolved selection a no-op instead of spawning a session", () => {

@@ -2,19 +2,51 @@ import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
 import type { AppState, StreamItem } from "../state/store";
 import { barText, connDot, isHistoryLoading } from "../state/store";
 import { IDS, setText, showAlertPage, showListPage, showLoadingPage } from "./render";
-import { LOADING_SESSIONS_ROW, sessionListRows, truncateTitle } from "./session-list";
+import { LOADING_SESSIONS_ROW, newSessionRows, orderedSessions, sessionListRows, truncateTitle } from "./session-list";
 import { clampToBudget, currentThreadViewport, wrapTextLines } from "./stream";
 
 export function truncateRow(title: string): string {
   return truncateTitle(title);
 }
 
-export function listRows(s: AppState, nowSeconds?: number): string[] {
-  if (!s.sessionsLoaded) return [LOADING_SESSIONS_ROW];
-  return sessionListRows(s.sessions.items, s.sessions.active, nowSeconds, {
+/**
+ * What is on screen, and what each row MEANS.
+ *
+ * `rows` and `ids` are built together and must stay together: the glasses report
+ * a tap as an INDEX into the rows they are currently displaying, and the session
+ * list re-sorts by recency underneath us. Re-deriving the mapping from live
+ * state at tap time therefore opens whatever is at that index NOW, which after
+ * any reorder is a different session than the one under the wearer's finger.
+ *
+ * `ids[i]` is the session for row `i`, or null for the ＋New rows.
+ */
+export interface ListView {
+  rows: string[];
+  ids: (string | null)[];
+  hostKeys: (string | null)[];
+}
+
+export function buildListView(s: AppState, nowSeconds?: number): ListView {
+  if (!s.sessionsLoaded) return { rows: [LOADING_SESSIONS_ROW], ids: [null], hostKeys: [null] };
+
+  const rows = sessionListRows(s.sessions.items, s.sessions.active, nowSeconds, {
     hosts: s.hosts,
     unread: s.unread,
   });
+  const newRows = newSessionRows(s.hosts);
+  const ordered = orderedSessions(s.sessions.items);
+  return {
+    rows,
+    ids: [...newRows.map(() => null), ...ordered.map((i) => i.id)],
+    hostKeys: [
+      ...newRows.map((_, i) => (s.hosts.length > 1 ? (s.hosts[i]?.key ?? null) : null)),
+      ...ordered.map(() => null),
+    ],
+  };
+}
+
+export function listRows(s: AppState, nowSeconds?: number): string[] {
+  return buildListView(s, nowSeconds).rows;
 }
 
 export async function renderList(bridge: EvenAppBridge, s: AppState): Promise<void> {

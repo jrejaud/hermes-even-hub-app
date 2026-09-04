@@ -19,7 +19,7 @@
 import http from "node:http";
 import { WebSocketServer } from "ws";
 
-import { loadHosts } from "./hosts.mjs";
+import { loadHosts, readOp } from "./hosts.mjs";
 import { Fleet, ActivityWatcher } from "./fleet.mjs";
 import { SessionPump } from "./pump.mjs";
 import { createTranscriber } from "./stt.mjs";
@@ -27,7 +27,9 @@ import { activity as activityFrame, error as errorFrame, helloOk, parseClient, s
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 8791);
 const BIND = process.env.BRIDGE_BIND ?? "127.0.0.1";
-const TOKEN = process.env.BRIDGE_TOKEN;
+// The token the wearer types into the phone setup form. `BRIDGE_TOKEN_OP` names
+// a 1Password item instead, resolved in-process so it never hits a command line.
+const TOKEN = process.env.BRIDGE_TOKEN ?? (process.env.BRIDGE_TOKEN_OP ? readOp(process.env.BRIDGE_TOKEN_OP) : undefined);
 const HOSTS_FILE = process.env.HOSTS_FILE ?? new URL("./hosts.json", import.meta.url).pathname;
 /** 60 s of 16 kHz mono PCM16. A longer press is a stuck mic, not a sentence. */
 const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES ?? 16_000 * 2 * 60);
@@ -45,7 +47,7 @@ const watcher = new ActivityWatcher(fleet, {
   intervalMs: Number(process.env.ACTIVITY_INTERVAL_MS ?? 5_000),
   log,
 });
-const stt = createTranscriber(process.env, { log });
+const stt = createTranscriber(process.env, { log, hostNames: fleet.hostList().map((h) => h.name) });
 
 const httpServer = http.createServer((req, res) => {
   if (req.url?.startsWith("/health")) {

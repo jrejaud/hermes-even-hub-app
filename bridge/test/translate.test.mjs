@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { framesFor, historyItems } from "../translate.mjs";
+import { framesFor, historyItems, stripPreamble, withPreamble, LENS_PREAMBLE } from "../translate.mjs";
 import { compositeId, splitId } from "../protocol.mjs";
 
 test("text_delta streams, result replaces and closes the turn", () => {
@@ -95,4 +95,33 @@ test("composite ids round-trip and reject malformed input", () => {
   for (const bad of ["", "nohost", "/leading", "trailing/", null, 42]) {
     assert.equal(splitId(bad), null, JSON.stringify(bad));
   }
+});
+
+test("the lens preamble is taken back out when replaying history", () => {
+  // It is an instruction to the agent, not something the wearer said. Left in,
+  // it ate most of a 10-line screen with the app lecturing itself about how to
+  // use the screen (seen live in the simulator, 2026-09-04).
+  const prompted = withPreamble("check the deploy");
+  const items = historyItems([
+    { role: "user", text: prompted },
+    { role: "assistant", text: "Deploy is green." },
+  ]);
+  assert.deepEqual(items, [
+    { kind: "user", text: "check the deploy" },
+    { kind: "assistant", text: "Deploy is green." },
+  ]);
+});
+
+test("an older leading-preamble session is cleaned up too", () => {
+  const legacy = `${LENS_PREAMBLE}\n\nwhat is running`;
+  assert.equal(stripPreamble(legacy), "what is running");
+  // And the even-agent-webhook wording, for sessions that shim created.
+  assert.equal(
+    stripPreamble('[You are answering out loud on smart glasses: keep it short.]\n\nhello'),
+    "hello",
+  );
+});
+
+test("a user turn that is ONLY the preamble disappears rather than showing blank", () => {
+  assert.deepEqual(historyItems([{ role: "user", text: LENS_PREAMBLE }]), []);
 });

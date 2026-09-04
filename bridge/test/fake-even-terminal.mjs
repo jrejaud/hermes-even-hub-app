@@ -72,7 +72,9 @@ export async function startFakeEvenTerminal({ token = "t0k", name = "fake" } = {
         id = `sess-${++counter}`;
         sessions.set(id, {
           messages: [], nextId: 0, state: "idle", history: [],
-          title: String(body?.text ?? "").slice(-60), timestamp: new Date().toISOString(),
+          // even-terminal titles from the OPENING of the first prompt, which is
+          // why a leading preamble poisons every session's title.
+          title: String(body?.text ?? "").slice(0, 60), timestamp: new Date().toISOString(),
         });
       }
       const s = sessions.get(id);

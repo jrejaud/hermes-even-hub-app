@@ -89,9 +89,16 @@ export function toSessionItem(host, s) {
 /**
  * Watches every host for sessions that move while the wearer is elsewhere.
  *
- * Fires on two transitions, which are the two a wearer actually cares about:
- *   - the session's timestamp advanced (it said something new)
- *   - it went busy -> idle (it FINISHED, which is the notification worth a tap)
+ * **Only fires when a session comes to REST**: it is idle now, and either it was
+ * busy last tick or its timestamp advanced. A session mid-turn ticks its
+ * timestamp every few seconds, and notifying on each tick produced a stream of
+ * identical alerts for one long turn (seen live, 2026-09-04, "GTA game
+ * comparison" three times in ninety seconds). A wearer wants "it finished", not
+ * "it is still going" — and on a HUD an alert storm is worse than no alert,
+ * because it buries the one that mattered.
+ *
+ * A per-session cooldown backs that up, so a session that flickers busy/idle
+ * cannot machine-gun the lens either.
  *
  * Deliberately polls the cheap `/api/sessions` list rather than subscribing per
  * session: it is one request per host regardless of how many sessions exist, and
@@ -99,12 +106,16 @@ export function toSessionItem(host, s) {
  * 404s for those, `/api/messages` returns empty).
  */
 export class ActivityWatcher {
-  constructor(fleet, { intervalMs = 5_000, log = () => {} } = {}) {
+  constructor(fleet, { intervalMs = 5_000, cooldownMs = 60_000, log = () => {}, now = () => Date.now() } = {}) {
     this.fleet = fleet;
     this.intervalMs = intervalMs;
+    this.cooldownMs = cooldownMs;
     this.log = log;
+    this.now = now;
     /** @type {Map<string,{updated:number,busy:boolean}>} */
     this.seen = new Map();
+    /** @type {Map<string,number>} last time each session was allowed to notify */
+    this.notifiedAt = new Map();
     this.timer = undefined;
     this.listeners = new Set();
     this.primed = false;
@@ -135,9 +146,18 @@ export class ActivityWatcher {
       const prev = this.seen.get(item.id);
       this.seen.set(item.id, { updated: item.updated, busy: !!item.busy });
       if (!prev) continue; // first sight of a session is not "activity"
+
+      // Still working is not news. Wait for it to come to rest.
+      if (item.busy) continue;
+
+      const finished = prev.busy;
       const advanced = item.updated > prev.updated;
-      const finished = prev.busy && !item.busy;
-      if (advanced || finished) events.push({ item, finished });
+      if (!finished && !advanced) continue;
+
+      const last = this.notifiedAt.get(item.id) ?? 0;
+      if (this.now() - last < this.cooldownMs) continue;
+      this.notifiedAt.set(item.id, this.now());
+      events.push({ item, finished });
     }
 
     // The very first tick populates the map; without this guard every session in
