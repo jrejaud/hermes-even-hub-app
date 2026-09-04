@@ -207,7 +207,7 @@ switch (verb) {
       if (!rows.length) { console.log("  (no open sessions registered)"); continue; }
       for (const row of rows) {
         const s = JSON.parse(row);
-        const live = await router.tabExists(h.key, s.iterm_uuid);
+        const live = (await router.resolve(s.session_id, h.key)) !== null;
         console.log(`  ${live ? "●" : "○"} ${s.session_id}  tab=${s.iterm_uuid}  ${live ? "LIVE — utterances go here" : "tab gone — falls back"}  ${s.cwd}`);
       }
     }

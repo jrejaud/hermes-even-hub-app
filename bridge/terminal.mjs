@@ -79,27 +79,27 @@ export class TerminalRouter {
     const hit = this.cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_MS) return hit.uuid;
 
-    // `open` must be true AND the tab must still exist: a session killed with
-    // SIGKILL never fires SessionEnd, so the registry alone is not evidence.
+    // `open` must be true AND the process must still be alive: a session killed
+    // with SIGKILL never fires SessionEnd, so the registry alone is not evidence.
+    //
+    // Liveness is a `kill -0` on the recorded pid, NOT a question to iTerm.
+    // iTerm's Python API needs the GUI session's own socket and cookie, so over
+    // ssh it fails outright — which read as "the tab is gone" and silently
+    // disabled routing for every remote host (2026-09-04). A pid check is plain
+    // POSIX and works over any transport.
     const script =
       `f="$HOME/.local/state/claude-sessions/${sessionId}.json"; ` +
       `[ -f "$f" ] || exit 0; ` +
-      `jq -r 'select(.open == true) | .iterm_uuid // empty' "$f" 2>/dev/null`;
+      `u=$(jq -r 'select(.open == true) | .iterm_uuid // empty' "$f" 2>/dev/null); ` +
+      `p=$(jq -r 'select(.open == true) | .pid // empty' "$f" 2>/dev/null); ` +
+      `[ -n "$u" ] || exit 0; ` +
+      `if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then echo "$u"; fi`;
     const r = await this.run(hostKey, script);
-    let uuid = (r.out ?? "").trim() || null;
+    const uuid = (r.out ?? "").trim() || null;
+    if (!uuid) this.log(`[terminal] ${sessionId} has no live tab on ${hostKey}`);
 
-    if (uuid && !(await this.tabExists(hostKey, uuid))) {
-      this.log(`[terminal] ${sessionId} registered to ${uuid}, but that tab is gone`);
-      uuid = null;
-    }
     this.cache.set(key, { at: Date.now(), uuid });
     return uuid;
-  }
-
-  async tabExists(hostKey, uuid) {
-    const r = await this.run(hostKey, `python3 "$HOME/.claude/lib/iterm_control.py" list-sessions 2>/dev/null`);
-    if (r.code !== 0) return false;
-    return r.out.split("\n").some((line) => line.trim() === uuid);
   }
 
   /**
