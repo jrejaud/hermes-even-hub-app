@@ -122,3 +122,38 @@ test("a session id that is not a plain identifier never reaches a shell", async 
     assert.equal(await router.resolve(bad, "ov"), null, bad);
   }
 });
+
+test("the turn does not end during the agent's thinking time", async (t) => {
+  const ov = await startFakeEvenTerminal();
+  t.after(() => ov.close());
+  ov.seed("live", { history: [{ role: "user", text: "hi" }] });
+
+  const h = harness(ov, fakeRouter({ tabs: { live: "TAB-UUID" } }));
+  await h.pump.attach("ov/live");
+  await h.pump.handleText("what is seventeen times three");
+
+  // Nothing on disk yet — the agent is still thinking. Counting quiet from the
+  // moment of sending ended the turn here, and the first live run emitted
+  // turn.done with no reply at all (2026-09-04).
+  await sleep(400 * 8);
+  assert.deepEqual(h.of("turn.done"), [], "turn ended before the agent replied");
+
+  ov.sessions.get("live").history.push({ role: "assistant", text: "51" });
+  await until(() => h.of("assistant").some((f) => f.text === "51"));
+  await until(() => h.of("turn.done").length);
+  h.pump.detach();
+});
+
+test("a terminal turn that never replies still ends", async (t) => {
+  const ov = await startFakeEvenTerminal();
+  t.after(() => ov.close());
+  ov.seed("live", {});
+
+  const h = harness(ov, fakeRouter({ tabs: { live: "TAB-UUID" } }));
+  await h.pump.attach("ov/live");
+  await h.pump.handleText("something that produces nothing");
+  // Without a ceiling the lens would sit on "thinking" forever.
+  h.pump.terminalSentAt = Date.now() - 10 * 60 * 1000;
+  await until(() => h.of("turn.done").length, 5_000);
+  h.pump.detach();
+});

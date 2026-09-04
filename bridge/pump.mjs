@@ -23,6 +23,8 @@ const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 400);
 const DEDUPE_WINDOW_MS = Number(process.env.DEDUPE_WINDOW_MS ?? 6_000);
 /** Polls with no new transcript lines before a terminal-backed turn is called done. */
 const TERMINAL_QUIET_TICKS = Number(process.env.TERMINAL_QUIET_TICKS ?? 6);
+/** A terminal turn that produces nothing still has to end, or the lens sits on "thinking" forever. */
+const TERMINAL_MAX_WAIT_MS = Number(process.env.TERMINAL_MAX_WAIT_MS ?? 300_000);
 
 // LENS_PREAMBLE / withPreamble / stripPreamble live in translate.mjs, next to
 // the history mapping that has to take the preamble back out again.
@@ -57,6 +59,8 @@ export class SessionPump {
     /** How many disk-history items have already been emitted this turn. */
     this.historyCursor = 0;
     this.quietTicks = 0;
+    this.sawReply = false;
+    this.terminalSentAt = 0;
   }
 
   get attached() {
@@ -248,6 +252,9 @@ export class SessionPump {
     }
     this.viaTerminal = true;
     this.historyCursor = items.length;
+    this.sawReply = false;
+    this.quietTicks = 0;
+    this.terminalSentAt = Date.now();
     this.startPolling();
     return true;
   }
@@ -275,17 +282,36 @@ export class SessionPump {
       for (const item of items.slice(this.historyCursor)) {
         // The wearer's own line is already on the thread — the client appended
         // it when they tapped send. Re-emitting it would double it.
-        if (item.kind === "assistant") this.emit(assistantFrame(item.text));
+        if (item.kind === "assistant") {
+          this.emit(assistantFrame(item.text));
+          this.sawReply = true;
+        }
       }
       this.historyCursor = items.length;
       this.quietTicks = 0;
       return;
     }
-    if (this.historyCursor > 0 && ++this.quietTicks >= TERMINAL_QUIET_TICKS) {
-      this.emit(turnDone());
-      this.viaTerminal = false;
-      this.quietTicks = 0;
+
+    // Quiet only counts AFTER something came back. Counting from the moment of
+    // sending ends the turn during the agent's thinking time — the first live
+    // run emitted turn.done with no reply at all, seconds before the answer
+    // reached disk (2026-09-04).
+    if (this.sawReply && ++this.quietTicks >= TERMINAL_QUIET_TICKS) return this.endTerminalTurn();
+
+    // A turn that never produces anything still has to end, or the session is
+    // stuck "thinking" on the lens forever.
+    if (Date.now() - this.terminalSentAt > TERMINAL_MAX_WAIT_MS) {
+      this.log(`[pump] terminal turn produced nothing in ${TERMINAL_MAX_WAIT_MS}ms`);
+      this.endTerminalTurn();
     }
+  }
+
+  endTerminalTurn() {
+    this.emit(turnDone());
+    this.viaTerminal = false;
+    this.quietTicks = 0;
+    this.sawReply = false;
+    this.terminalSentAt = 0;
   }
 
   async answerPermission(utterance) {
