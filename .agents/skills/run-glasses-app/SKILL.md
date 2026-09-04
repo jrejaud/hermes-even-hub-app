@@ -13,7 +13,7 @@ Realities G2 display (576×288). You don't need real hardware: the
 `.Codex/skills/run-glasses-app/sim-drive.mjs` — it talks to that API so you can
 send gestures and grab the glasses render programmatically.
 
-All paths below are relative to the `glasses-app/` package root.
+All paths below are relative to the repo root.
 
 > Verified on macOS (darwin, arm64) — the simulator ships per-platform native
 > binaries (`@evenrealities/sim-darwin-arm64`). It opens a real window, so it
@@ -56,8 +56,9 @@ node .Codex/skills/run-glasses-app/sim-drive.mjs console 20     # tail in-app co
 ```
 
 Screenshots land in `docs/e2e/`. **Open the PNG and look at it** — a real run
-shows the green G2 render (e.g. `Hermes ●`, model/provider lines, `ready for
-input`). The simulator's `/api/input` accepts exactly four gestures:
+shows the green G2 render: the session list with one `＋ New · <host>` row per
+machine, session rows tagged `ov` / `ch`, and `ready` in the status bar. The
+simulator's `/api/input` accepts exactly four gestures:
 `click double_click up down` — any other string returns HTTP 400.
 
 ### One-shot smoke (the existing committed harness)
@@ -80,7 +81,16 @@ headless verification — use the simulator path above.
 ## Test
 
 ```bash
-npm test           # vitest — verified: 11 files, 75 tests passed
+npm test           # client, vitest — verified: 13 files, 161 tests
+npm run test:bridge # bridge, node --test — verified: 45 tests
+```
+
+**The simulator needs a running bridge to show anything but a connecting state.**
+Start it first, and write the dev profile the app auto-adopts:
+
+```bash
+npm --prefix bridge start &
+node bridge/cli.mjs app-env      # writes .env.local (url + token), no secret on a command line
 ```
 
 ## Gotchas
@@ -105,10 +115,16 @@ npm test           # vitest — verified: 11 files, 75 tests passed
   `/api/screenshot/window`, etc. all 404.
 - **`timeout` is not on macOS.** The `timeout 60 node ...` idiom fails with
   `command not found`; drop it or use `gtimeout` (coreutils).
-- **The app connects to the bridge** at `VITE_BRIDGE_LAN_URL` from `.env.local`
-  (`ws://…:8765`). If a Hermes bridge is running on the LAN, the render shows a
-  live session; if not, the app still renders but stays in a connecting state.
-  Copy `.env.example` → `.env.local` and set the URL + token if needed.
+- **The app connects to the bridge** at `VITE_BRIDGE_URL` from `.env.local`
+  (`ws://127.0.0.1:8791`). Those defaults are adopted **only in a dev build** —
+  without them the simulator always boots to "Open phone app to configure
+  bridge", and there is no phone in the simulator. `node bridge/cli.mjs app-env`
+  writes the file.
+- **An activity notification re-renders the list**, and a list can only be
+  redrawn by full rebuild — which discards the native scroll position. The app
+  holds rebuilds for 8s after a scroll, so give it a beat before screenshotting a
+  scrolled list, and do not be surprised if a capture taken during a busy session
+  shows the top of the list.
 
 ## Troubleshooting
 

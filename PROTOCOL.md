@@ -1,8 +1,17 @@
-# Even Realities G2 ↔ Hermes Bridge — Wire Protocol
+# G2 ↔ Claude Code Bridge — Wire Protocol
 
-Version: 1.0  
-Transport: WebSocket (text frames = JSON, binary frames = raw PCM — see below)  
+Version: 2.0
+Transport: WebSocket (text frames = JSON, binary frames = raw PCM)
 Discriminator field: `t` (string, required on every frame)
+
+Implemented by `src/protocol.ts` (client) and `bridge/protocol.mjs` (server).
+**Change one, change the other.** Both halves have tests asserting the same
+shapes, so a drift fails a test rather than failing silently on the lens.
+
+Version 2 adds `host`, `ask`, `ask.done` and `activity` to the 1.0 contract. All
+additions are optional fields or new frame types: a single-host bridge that never
+sends them drives a v2 client correctly, and a v1 client ignores what it does not
+know. That is deliberate — the backend swap is meant to be upstreamable.
 
 ---
 
@@ -10,90 +19,167 @@ Discriminator field: `t` (string, required on every frame)
 
 | `t`               | Fields                              | Description |
 |-------------------|-------------------------------------|-------------|
-| `hello`           | `token: string`, `device: string`   | First frame after connect. Authenticates the client and identifies the device model. |
+| `hello`           | `token: string`, `device: string`   | First frame after connect. The server closes with **1008** on a bad token, or after 5s with no hello. |
 | `sessions.list`   | _(none)_                            | Request the full session list. |
-| `sessions.switch` | `id: string`                        | Activate an existing session by ID. |
-| `sessions.new`    | `title?: string`                    | Create a new session, optionally with a title. |
-| `text`            | `text: string`                      | Send a user text message to the active session. |
-| `stop`            | _(none)_                            | Interrupt the active assistant turn. |
-| `audio.start`     | _(none)_                            | Begin streaming PCM audio (see Binary Frames below). |
-| `audio.stop`      | _(none)_                            | End PCM audio stream. |
+| `sessions.switch` | `id: string`                        | Open a session by composite id. |
+| `sessions.new`    | `host?: string`, `title?: string`   | Arm a new session on `host` (defaults to the bridge's first host). **v2:** `host`. |
+| `text`            | `text: string`                      | An utterance. **Not necessarily a prompt** — see routing below. |
+| `stop`            | _(none)_                            | Interrupt the active turn. |
+| `audio.start`     | _(none)_                            | Begin streaming PCM (see Binary Frames). |
+| `audio.stop`      | _(none)_                            | End the stream; the server transcribes and replies with `transcript`. |
+
+### How `text` is routed
+
+A `text` frame is **not** unconditionally a new prompt. The bridge routes it, in
+this order:
+
+1. **An outstanding `ask` owns it.** A permission answer goes to
+   `POST /api/permission-response`; a question answer to
+   `POST /api/question-response`. Otherwise the agent sits blocked for 60s and
+   auto-answers while the wearer talks past it.
+2. **A reset phrase** (`new session`, `start over`, `reset`, …) detaches instead
+   of prompting, so a session that has become unusable can be escaped without a
+   keyboard.
+3. **A status phrase** (`status`, `continue`, …) drains what has landed without
+   re-prompting — otherwise the agent answers the word "status".
+4. **Otherwise** it is a prompt.
+
+Keeping this server-side is what lets voice answering work with no extra client
+frames and no extra gesture.
 
 ---
 
-## Server → Client (bridge sends to glasses)
+## Server → Client
 
-| `t`          | Fields                                                          | Description |
-|--------------|-----------------------------------------------------------------|-------------|
-| `hello.ok`   | `caps: Record<string, unknown>`, `active: string \| null`       | Handshake acknowledgement. `caps` lists server capabilities; `active` is the currently active session ID (or null). |
-| `sessions`   | `items: SessionItem[]`, `active: string \| null`                | Full session list. `active` is the currently active session ID. |
-| `active`     | `id: string`                                                    | Notifies the client which session is now active (after switch or new). |
-| `transcript` | `text: string`                                                  | A transcription chunk of user speech. |
-| `assistant`  | `text: string`                                                  | Full assistant text snapshot for the current message segment. The client replaces the current assistant segment when this arrives. |
-| `assistant.delta` | `text: string`                                             | Append-only assistant text chunk. This is the normal bridge streaming path. |
-| `tool.start` | `name: string`, `label?: string`, `emoji?: string`              | A tool invocation has started. `label` and `emoji` are optional and omitted from the frame when empty. |
-| `tool.end`   | `name: string`, `ok: boolean`                                   | A tool invocation completed. `ok=false` indicates failure. |
-| `turn.done`  | _(none)_                                                        | The assistant turn is complete; no further `assistant` or `tool.*` frames will arrive for this turn. |
-| `error`      | `msg: string`                                                   | An error occurred on the server side. |
+| `t`               | Fields | Description |
+|-------------------|--------|-------------|
+| `hello.ok`        | `caps: Record<string,unknown>`, `active: string \| null` | Handshake ack. `caps` advertises `{hosts, stt, multiHost, ask, activity}`. |
+| `sessions`        | `items: SessionItem[]`, `active: string \| null`, `hosts?: HostItem[]` | The merged list. **v2:** `hosts`. |
+| `active`          | `id: string` | Which session is now active. |
+| `history`         | `id: string`, `items: HistoryItem[]`, `ok?: boolean` | The session's thread. `ok: false` means history could not be read. |
+| `transcript`      | `text: string` | Transcription of the last audio stream. Empty = nothing heard. |
+| `assistant`       | `text: string` | Authoritative snapshot; **replaces** the trailing assistant segment. |
+| `assistant.delta` | `text: string` | Append-only chunk. The normal streaming path. |
+| `tool.start`      | `name: string`, `label?: string`, `emoji?: string` | A tool call began. |
+| `tool.end`        | `name: string`, `ok: boolean` | A tool call finished. |
+| `ask`             | `ask: "permission" \| "question"`, `text: string`, `options?: string[]` | **v2.** The agent is blocked on the wearer. `text` is already rendered for the lens and carries its own spoken cue. |
+| `ask.done`        | _(none)_ | **v2.** The outstanding ask was answered or superseded. |
+| `activity`        | `id`, `host?`, `title`, `preview` | **v2.** A session *other than the active one* came to rest. |
+| `turn.done`       | _(none)_ | The turn is complete. |
+| `error`           | `msg: string` | Server-side error, in words a wearer can read. |
 
-### `SessionItem` shape
+### `SessionItem`
 
 ```jsonc
 {
-  "id":      "string",   // unique session ID
-  "title":   "string",   // human-readable title
-  "updated": 1234567890, // Unix timestamp (seconds) of last activity
-  "tokens":  1024        // optional token count
+  "id":      "ov/8bc524f6-…",  // composite: "<hostKey>/<sessionId>"
+  "title":   "check the deploy",
+  "updated": 1780000000,        // unix SECONDS
+  "host":    "ov",              // v2: short host key, for the row tag
+  "busy":    false,             // v2: mid-turn right now
+  "tokens":  1024               // optional
 }
+```
+
+**`id` is opaque to the client.** Only the bridge splits it. That is what lets
+one list span several machines while the client knows nothing about hosts beyond
+a two-character display tag. A session id from `even-terminal` is a UUID, so `/`
+is an unambiguous separator.
+
+### `HostItem`
+
+```jsonc
+{ "key": "ov", "name": "overlord", "online": true }
+```
+
+`online` is set by the bridge's last transport result for that host. A host that
+is down contributes no sessions and does **not** fail the list.
+
+### `HistoryItem`
+
+```jsonc
+{ "kind": "user",      "text": "…" }
+{ "kind": "assistant", "text": "…" }
+{ "kind": "banner",    "text": "…" }
+{ "kind": "tool",      "name": "Bash", "label": "…", "running": true, "ok": true }
+{ "kind": "ask",       "ask": "permission", "text": "…", "options": ["allow","deny"], "answered": false }
 ```
 
 ---
 
-## Binary Frames (M4)
+## Binary Frames
 
-Between an `audio.start` and the matching `audio.stop` JSON frame, the client MAY send **binary WebSocket frames** containing raw PCM audio data:
+Between `audio.start` and `audio.stop`, the client sends **binary** frames of raw
+PCM: **signed 16-bit little-endian, 16 kHz, mono**, 100 ms (3,200 bytes) per
+frame — the format the Even Hub SDK delivers. No per-chunk acknowledgement.
+Binary frames outside a stream window are ignored, and the buffer is capped
+(default 60s) because a longer press is a stuck mic, not a sentence.
 
-- Encoding: **signed 16-bit little-endian (s16le)**
-- Sample rate: **16 000 Hz**
-- Channels: **mono**
-
-The server buffers and transcribes these frames. No acknowledgement is sent per chunk. Binary frames outside an audio stream window are ignored.
+The server transcribes on `audio.stop` and replies with exactly one `transcript`.
 
 ---
 
-## Internal: Hermes SSE Mapping
+## Mapping: `even-terminal` → protocol frames
 
-The bridge connects to a Hermes API server that emits Server-Sent Events. This section records the authoritative mapping from Hermes SSE event types to glasses protocol frames.
+Message types read out of `@evenrealities/even-terminal`'s `dist/claude/session.js`,
+not guessed. Implemented in `bridge/translate.mjs`.
 
-| Hermes SSE event       | Relevant data fields                                                   | Glasses frame emitted |
-|------------------------|------------------------------------------------------------------------|-----------------------|
-| `assistant.delta`      | `data.delta` — incremental text chunk                                  | Bridge diffs the gateway's accumulated text and emits `assistant.delta{text=<unsent suffix>}` |
-| `assistant.completed`  | `data.content` — full final text                                       | `assistant{text=data.content}` — authoritative final snapshot when available |
-| `tool.started`         | `data.tool_name`, `data.preview` (human label), `data.args`            | `tool.start{name=tool_name, label=preview}` |
-| `tool.completed`       | `data.tool_name`                                                        | `tool.end{name=tool_name, ok=true}` |
-| `done`                 | _(named terminal event, no data fields required)_                       | `turn.done{}` |
-| `tool.progress` where `tool_name="_thinking"` | —                                                | **Ignored** (swallowed by bridge, not forwarded) |
+| even-terminal message | Fields used | Frame emitted |
+|---|---|---|
+| `text_delta` | `text` | `assistant.delta` |
+| `result` | `text` | `assistant` (snapshot) then `turn.done`, plus `ask.done` if one was open |
+| `tool_start` | `name` | `tool.start` |
+| `tool_end` | `name`, `detail.output.is_error` | `tool.end{ok}` |
+| `permission_request` | `description`/`detail`/`toolName`, `options[].key` | `ask{ask:"permission"}` |
+| `user_question` | `questions[0].question`, `questions[0].options[].label` | `ask{ask:"question"}` |
+| `error` | `message` | `error` |
+| `status`, `notification` | — | **ignored** |
+
+Two shape traps worth restating:
+
+- **`user_question.questions` is an ARRAY.** Guessing `{question}` or `{text}`
+  put the literal string "Claude is asking: a question" on the lens with the real
+  content discarded.
+- **`tool_end` carries no `ok`.** Failure is inferred, defaulting to success — a
+  tool wrongly shown as failed is more alarming on a HUD than one wrongly shown
+  as fine, and the assistant text says what actually happened.
 
 ### Session creation
 
-When `sessions.new` is handled, the bridge POSTs to the Hermes API. The response JSON shape is:
+`even-terminal` has no create route. A session comes into existence when
+`POST /api/prompt` runs **without** a `sessionId`, and the response carries the
+new id. So `sessions.new` only records which host was chosen; the first
+utterance spawns the session and triggers `active`.
 
-```jsonc
-{
-  "object": "hermes.session",
-  "session": {
-    "id": "<session-id>",
-    // ... other fields
-  }
-}
-```
+### Attaching to an existing session
 
-The session ID is nested at `response.session.id` (not at the top level).
+Disk history (`GET /api/sessions/:id/history`) is replayed as the thread. The
+in-memory ring (`GET /api/messages?after=0`) is replayed **only when the session
+is busy** — that content belongs to a turn still running and is not on disk yet.
+When idle it is discarded, because it would duplicate the history just sent.
+
+### Activity
+
+The bridge polls each host's session list and emits `activity` when a session
+**comes to rest**: idle now, and either it was busy last tick or its timestamp
+advanced, subject to a per-session cooldown. A session mid-turn ticks its
+timestamp every few seconds; notifying on each tick put three identical alerts on
+the lens inside ninety seconds. On a HUD an alert storm is worse than no alert,
+because it buries the one that mattered.
 
 ---
 
-## STT Engine (M4)
+## Speech to text
 
-**Choice: `faster-whisper`** — a CTranslate2-based Whisper binding (CPU-capable, low latency for short utterances).
+The Even Hub SDK hands the app raw PCM and nothing else — there is no
+transcription API on the phone or the glasses — so the bridge owns it.
 
-Hermes has internal STT (Discord voice pipeline) but doesn't expose it as a reusable endpoint. The bridge runs its own `faster-whisper` instance in-process. The glasses send raw PCM (s16le, 16 kHz, mono) over binary WS frames; the bridge buffers between `audio.start`/`audio.stop`, converts to a numpy float32 array, and calls `WhisperModel.transcribe()`. The resulting transcript is emitted as a `transcript{text}` frame, then fed into `run_turn()` as the user message.
+| `STT_ENGINE` | How |
+|---|---|
+| `whispercpp` | spawns `whisper-cli` on a temp WAV. No network, no API key. |
+| `openai` | multipart POST to any OpenAI-compatible `/v1/audio/transcriptions` (Groq, OpenAI, or whisper.cpp's own `whisper-server`). |
+| `none` | returns an explanatory `error` rather than hanging silently. |
+
+Whisper emits bracketed non-speech markers on silence (`[BLANK_AUDIO]`,
+`(wind blowing)`); these are stripped, and an empty result means "say again"
+rather than becoming a prompt.

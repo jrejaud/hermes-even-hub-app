@@ -1,134 +1,197 @@
-# hermes-even-hub-app
+# claude-code-g2-hub
 
-Drive a locally-running [Hermes agent](https://github.com/NousResearch/hermes-agent) hands-free
-from Even Realities G2 smart glasses. Talk to it, watch replies stream, see tool calls, and switch
-sessions.
+Drive **Claude Code sessions on any number of machines** from Even Realities G2
+smart glasses. Talk to a session, watch the reply stream on the lens, approve a
+blocked tool call by saying "yes", and get tapped on the shoulder when a session
+on another host finishes.
 
-This is the **glasses-side app** (the WebSocket **client**). The server half — the Hermes plugin
-that hosts the WebSocket and bridges to the agent — is its sister repo,
-**[hermes-evenhub-bridge](https://github.com/huntsyea/hermes-evenhub-bridge)**.
+It is an ordinary **Even Hub app**, which is the entire point. The G2's built-in
+Terminal mode does something similar but is *modal and exclusive*: entering it
+disables the rest of the glasses. This multitasks like any other Hub app.
 
-> **The wire protocol is a contract:** `src/protocol.ts` here and `protocol.py` in the bridge must
-> stay in sync — when you change one, update the other.
+> Forked from **[huntsyea/hermes-even-hub-app](https://github.com/huntsyea/hermes-even-hub-app)** (MIT),
+> whose list-first, voice-only, terminal-styled UI already mirrored Terminal mode.
+> The client's structure, gesture model and measured text wrapping are its work.
+> This fork replaces the backend: the Hermes bridge is gone, and in its place is
+> one that speaks `even-terminal`'s HTTP API across several hosts.
 
 ## Architecture
 
 ```
 G2 glasses (576×288 + mic)
         ▲
-        │  Even Hub WebView
-  this app (TypeScript / Vite)  ──JSON frames + PCM, wss:// (Tailscale Serve)──▶  hermes-evenhub-bridge
-        ▲                                                                              │
-        └──────────────  assistant deltas · tool status · transcripts  ◀──────────────┘  → Hermes agent
+        │  Even Hub WebView, on the phone
+  this app (TypeScript / Vite)
+        │  JSON frames + PCM, wss:// over Tailscale
+        ▼
+  bridge/  (Node, no build step)
+        │  HTTP, one client per host
+        ├──▶ even-terminal :3457 on overlord ──▶ Claude Code
+        └──▶ even-terminal :3457 on chiba    ──▶ Claude Code
 ```
+
+**Host is config, not a constant.** Adding a third machine is a line in
+`bridge/hosts.json`. A host that is unreachable contributes no sessions and never
+fails the list — an ad-hoc `even-terminal` on a laptop is offline most of the
+time by design.
+
+## What it does
+
+- **One session list across every machine.** Newest first, each row tagged with
+  the host it lives on, `*` for activity you have not seen. One `＋New` row per
+  host, so choosing where a session spawns costs no extra screen or gesture.
+- **Streaming replies** with tool-call rows (`/ Bash` running → `/ Bash ok`).
+- **Voice in.** Tap to record, tap to stop, review the transcript, tap to send.
+  Transcription runs on the bridge (`whisper.cpp` locally, or any
+  OpenAI-compatible endpoint).
+- **Permission prompts and `AskUserQuestion` answered by speaking.** The bridge
+  routes your next utterance to the right endpoint instead of starting a new turn.
+  **An ambiguous answer denies** — see below.
+- **Activity notifications with tap-to-open.** A session elsewhere finishes; the
+  lens says which machine and what it said; a tap goes straight there.
+
+## Interaction model
+
+Boots to the session list; open or create a session, then drive it by voice.
+
+| State | Swipe ↑/↓ | Tap | Double-press |
+|-------|-----------|-----|--------------|
+| **List** | scroll sessions | open row / `＋New` | **exit app** |
+| **Session · idle** | scroll history | **start recording** | back to list |
+| **Session · recording** | — | stop → transcribe → review | cancel |
+| **Session · review** | ↓ = **redo** | **send** | back to list (discard) |
+| **Alert** | dismiss | **open that session** | dismiss |
+
+The alert is its own screen rather than an overlay, because inside a session a
+tap already means "record" — an alert borrowing that gesture would be ambiguous
+exactly when it matters. It never appears while you are recording.
+
+## The rules that are load-bearing
+
+These are ported from `even-agent-webhook.mjs`, where each was learned from a
+live failure. They are unit-tested rather than re-verified by wearing glasses.
+
+- **An ambiguous permission answer DENIES.** A mumble, or a sentence meant as a
+  new request, must never read as consent to run something on an unattended
+  machine.
+- **A correction inside a refusal is carried forward.** "No. Jellyfin, not
+  Spotify." denies the call *and* resubmits the instruction. Mapping it to a bare
+  deny threw the correction away and left "Blocked." on the lens.
+- **An outstanding ask owns the next utterance.** Otherwise the agent sits
+  blocked for 60s and auto-answers while the wearer talks past it — including an
+  ask raised *after* the app stopped listening, which is why every utterance
+  drains once before it is routed.
+- **A dead session is respawned, not reported.** A remembered session can be
+  archived or deleted underneath you; that is recoverable, not news.
+- **"new session" escapes a poisoned session.** A session can stay alive but
+  refuse a topic; without an escape the wearer is stuck in it with no keyboard.
 
 ## Setup
 
-1. **Install + run the bridge** on the Mac — see
-   [hermes-evenhub-bridge](https://github.com/huntsyea/hermes-evenhub-bridge):
-   `hermes plugins install huntsyea/hermes-evenhub-bridge`, set `EVENHUB_BRIDGE_TOKEN` in
-   `~/.hermes/.env`, enable it, restart the gateway.
-2. **Expose the local bridge with Tailscale Serve**:
-   ```bash
-   tailscale serve --https=8443 --bg http://localhost:8765
-   ```
-3. **Install or sideload this app**, then open its phone companion surface in Even Hub.
-   Enter:
-   ```
-   wss://<node>.<tailnet>.ts.net:8443
-   <same shared bridge token>
-   ```
-   The app stores that profile at runtime with the Even SDK storage API. No token is required
-   in the build.
+**1. Run `even-terminal` on each host** (Even Realities' own package). Use a
+fixed `--token` — without it a restart mints a new one and invalidates the
+phone's pairing. Never pass `--cwd`; it silently empties the session list.
 
-Optional developer defaults can be set in `.env.local` to prefill the phone setup form during
-local testing, but runtime entry remains the production path.
+**2. Configure the bridge.** Copy `bridge/hosts.example.json` to
+`bridge/hosts.json`. Tokens are named, never written in:
+
+```jsonc
+{ "hosts": [
+  { "key": "ov", "name": "overlord", "url": "http://100.x.x.x:3457",
+    "tokenOp": "Shared/<1password-item-id>" },
+  { "key": "ch", "name": "chiba", "url": "http://100.x.x.x:3457",
+    "tokenEnv": "EVEN_TERMINAL_TOKEN_CH" }
+]}
+```
+
+**3. Run the bridge** (`bridge/.env` or the environment):
+
+```bash
+BRIDGE_TOKEN=<shared secret the phone will use>   # or BRIDGE_TOKEN_OP=<vault/item>
+STT_ENGINE=whispercpp
+WHISPER_MODEL=/path/to/ggml-large-v3-turbo.bin
+
+npm --prefix bridge start
+```
+
+**4. Give it TLS** — the Even app requires an HTTPS/WSS origin:
+
+```bash
+tailscale serve --https=8791 --bg http://localhost:8791
+```
+
+**5. Point the app at it.** Install or sideload, open the phone companion
+surface, enter `wss://<node>.<tailnet>.ts.net:8791` and the same bridge token.
+The profile is stored at runtime via the Even SDK.
+**No token is ever bundled in the build** — anyone with an `.ehpk` can extract
+what is inside it. `.env.local` defaults are adopted only in a dev build
+(`import.meta.env.DEV`), purely so the simulator can connect.
 
 ## Commands
 
 ```bash
-npm run dev          # Vite dev server (for simulator or sideloading)
-npm run sim          # Launch the Even Hub simulator
-npm run sim:check    # Automated smoke test against the simulator
-npm run qr           # QR code for sideloading to real glasses
-npm run pack         # Build + package as .ehpk
-npm run test         # Run vitest suite
+npm run dev          # Vite dev server (for the simulator or sideloading)
+npm run sim          # Even Hub simulator, automation on :9898
+npm run sim:check    # scripted smoke test against the simulator
+npm run qr           # QR for sideloading to real glasses
+npm run pack         # build + package as .ehpk
+npm test             # client tests (vitest)
+npm run test:bridge  # bridge tests (node --test)
+npm run test:all     # both
+npm run bridge       # start the bridge
 ```
 
-## Runtime Connection Profile
+### Driving the real protocol from a terminal
 
-The phone companion UI stores:
-
-```ts
-interface ConnectionProfile {
-  url: string;
-  token: string;
-  activeSession?: string;
-  updatedAt: number;
-}
-```
-
-The profile is persisted under `hermes.connectionProfile.v1`. Older `hermes.lastUrl` and
-`hermes.activeSession` values are read as a migration fallback. If no valid profile exists,
-the glasses show `Open phone app to configure bridge.` and do not attempt a WebSocket connection.
-
-`app.json` ships with `https://*.ts.net` and `wss://*.ts.net` for the Tailscale Serve path.
-For local sideload testing, edit `app.json` to include an exact `ws://...` host if the Even
-review/runtime path does not accept the wildcard Tailscale entries.
-
-## Interaction model (Terminal-style)
-
-The app is list-first and voice-only, mirroring Even Realities Terminal mode. It boots
-to the session list; you open or create a session, then drive it by voice:
-tap to record, tap to stop, review the transcript, tap to send.
-
-States: `list → session(idle) → recording → transcribing → review → idle`.
-
-### Gesture Map
-
-| State | Swipe ↑/↓ | Tap | Double-press |
-|-------|-----------|-----|--------------|
-| **List** | scroll sessions | open highlighted row / `＋New` | **exit app** (system dialog) |
-| **Session · idle** | scroll chat history | **start recording** | back to list |
-| **Session · recording** | — | **stop → transcribe → review** | cancel recording → idle |
-| **Session · review** | ↓ = **redo** (discard, re-arm) | **send** to Hermes | back to list (discard) |
-
-### Session screen
-
-A terminal-style stream: `>` your entries, `/` tool calls (`/ name` running, `/ name ✓`
-done), and plain wrapped lines for the assistant. The header shows the session title +
-a connection dot (`●` connected / `◌` reconnecting). A bottom **agent-state bar** shows
-what's happening now:
-
-| Bar | Meaning |
-|-----|---------|
-| `ready for input` | session open, awaiting your tap |
-| `🎤 recording…` | mic on (tap to stop) |
-| `transcribing…` | Whisper running on the Mac |
-| `tap = send · swipe↓ = redo` | transcript shown, awaiting confirm |
-| `thinking…` | turn sent, before first token |
-| `working… (<tool>)` | a tool is active |
-
-## Voice Input
-
-Inside a session, **tap to start recording**; the mic captures PCM audio (16 kHz, s16le,
-mono) and streams it as binary WebSocket frames to the bridge. **Tap again to stop** — the
-bridge transcribes via `faster-whisper` and returns the transcript. You **review** it inline
-as the next `>` line in the thread, then **tap to send** it to Hermes (or **swipe down to
-redo**). Assistant replies stream back as incremental deltas and interleave with one-line
-tool-call rows.
-
-## Packaging
+`bridge/cli.mjs` speaks the same frames the glasses do. This is how you tell a
+bridge problem from an app problem, and how you reproduce a report from the
+glasses without wearing anything.
 
 ```bash
-npm run pack
+cd bridge
+node --env-file-if-exists=.env cli.mjs health
+node --env-file-if-exists=.env cli.mjs sessions              # merged, all hosts
+node --env-file-if-exists=.env cli.mjs open ov/<session-id>
+node --env-file-if-exists=.env cli.mjs new ch "what is failing in CI"
+node --env-file-if-exists=.env cli.mjs new ov "..." --reply "yes"   # auto-answer an ask
+node --env-file-if-exists=.env cli.mjs speak clip.wav        # exercise the STT path
+node --env-file-if-exists=.env cli.mjs watch --seconds 120   # activity notifications
 ```
 
-Produces `hermes-even-hub-app.ehpk`. Sideload via `evenhub qr` during development.
+`--reply` answers on the **same connection**: `AskUserQuestion` blocks for only
+60s before auto-answering "skip", so splitting ask and answer across two runs
+loses the race, and losing it looks exactly like a broken answer path.
+
+## Protocol
+
+The wire contract is [`PROTOCOL.md`](PROTOCOL.md), implemented by
+`src/protocol.ts` and mirrored by `bridge/protocol.mjs`. **Change one, change the
+other** — both halves have tests asserting the same frame shapes, so a drift
+fails a test instead of failing on the lens.
+
+Everything this fork adds is an optional field or a new frame type, so a
+single-host bridge that never sends them still drives this client unchanged.
+
+## Display constraints worth knowing before you edit the UI
+
+- **576 × 288, 4-bit greyscale**, ~10 lines of proportional text. No fonts, no
+  sizes, no alignment. Glyphs outside the firmware font are **silently dropped**
+  (`✓` vanishes; no emoji at all).
+- **A list cannot be updated in place** — changing one row rebuilds the page, and
+  a rebuild discards the native scroll position. Hence the redraw guards in
+  `src/main.ts`.
+- **`rebuildPageContainer` and `textContainerUpgrade` reject content over ~999
+  bytes by resolving `false`** — no throw, no log, the screen simply does not
+  change, which is indistinguishable from a stale screenshot. Wrapping is by
+  *pixel* width and does not bound UTF-8 length, so every viewport is
+  byte-clamped per line and in total (`src/ui/stream.ts`).
+- **A tap arrives as an index into the rows on screen**, while the list re-sorts
+  by recency underneath. Taps resolve against a snapshot of what was drawn, never
+  against live state.
 
 ## References
 
-- [Even Hub docs](https://hub.evenrealities.com/docs/getting-started/installation)
-- [Simulator](https://hub.evenrealities.com/docs/reference/simulator)
-- [CLI](https://hub.evenrealities.com/docs/reference/cli)
-- [Claude Code plugin](https://hub.evenrealities.com/docs/AI-tooling/claude%20code/)
+- [Even Hub docs](https://hub.evenrealities.com/docs)
+- [`@evenrealities/even-terminal`](https://www.npmjs.com/package/@evenrealities/even-terminal) — the per-host server this bridges to
+- [huntsyea/hermes-even-hub-app](https://github.com/huntsyea/hermes-even-hub-app) — upstream
+- [Tohoso/tmux-on-g2](https://github.com/Tohoso/tmux-on-g2) — secondary reference for temple-swipe scrolling
