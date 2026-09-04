@@ -73,7 +73,9 @@ describe("connection profile persistence", () => {
     expect(typeof result?.updatedAt).toBe("number");
   });
 
-  it("returns null when no profile exists and no dev defaults are set", async () => {
+  it("returns null when nothing is stored and nothing was baked in", async () => {
+    // A production build: neither .env.development.local nor .env.beta.local is
+    // loaded, so the phone setup form is the only way in.
     vi.stubEnv("VITE_BRIDGE_URL", "");
     vi.stubEnv("VITE_BRIDGE_TOKEN", "");
     const bridge = makeBridge();
@@ -81,17 +83,35 @@ describe("connection profile persistence", () => {
     vi.unstubAllEnvs();
   });
 
-  it("adopts .env.local defaults in a dev build so the simulator can connect", async () => {
-    // There is no phone in the simulator, so without this it always boots to
-    // "Open phone app to configure bridge" and cannot be verified at all.
-    // `import.meta.env.DEV` is false for `vite build`, so a packed .ehpk can
-    // never carry these — anyone with the package could extract a bundled token.
-    vi.stubEnv("VITE_BRIDGE_URL", "ws://127.0.0.1:8791");
-    vi.stubEnv("VITE_BRIDGE_TOKEN", "devtoken");
+  it("adopts baked-in credentials when the build carries them", async () => {
+    // Dev (.env.development.local) so the simulator can connect at all — there
+    // is no phone in it — and beta (.env.beta.local) so a testing-group install
+    // just runs. Which files load is decided by the BUILD MODE, not by a runtime
+    // guard: a guard stops a value being used, not being shipped, and Vite
+    // inlines these as literals. scripts/check-no-secrets.mjs enforces the rest.
+    vi.stubEnv("VITE_BRIDGE_URL", "wss://host.ts.net:8791");
+    vi.stubEnv("VITE_BRIDGE_TOKEN", "bakedtoken");
     const bridge = makeBridge();
     await expect(loadConnectionProfile(bridge)).resolves.toMatchObject({
-      url: "ws://127.0.0.1:8791",
-      token: "devtoken",
+      url: "wss://host.ts.net:8791",
+      token: "bakedtoken",
+    });
+    vi.unstubAllEnvs();
+  });
+
+  it("a stored profile always beats a baked-in one, so the form can override", async () => {
+    vi.stubEnv("VITE_BRIDGE_URL", "wss://baked.ts.net:8791");
+    vi.stubEnv("VITE_BRIDGE_TOKEN", "bakedtoken");
+    const bridge = makeBridge({
+      "ccg2.connectionProfile.v1": JSON.stringify({
+        url: "wss://typed-in.ts.net:8791",
+        token: "typedtoken",
+        updatedAt: 9,
+      }),
+    });
+    await expect(loadConnectionProfile(bridge)).resolves.toMatchObject({
+      url: "wss://typed-in.ts.net:8791",
+      token: "typedtoken",
     });
     vi.unstubAllEnvs();
   });

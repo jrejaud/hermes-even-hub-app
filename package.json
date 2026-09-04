@@ -1,7 +1,7 @@
 {
   "name": "claude-code-g2-hub",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Even Hub app (Even Realities G2) driving Claude Code sessions across several hosts — a non-exclusive replacement for G2 Terminal mode",
   "license": "MIT",
@@ -17,13 +17,15 @@
     "sim:glow": "evenhub-simulator http://localhost:5173 --automation-port 9898 --glow",
     "sim:check": "node scripts/smoke-sim.mjs",
     "qr": "evenhub qr --url http://localhost:5173",
-    "pack": "npm run build && npm run check:secrets && evenhub pack app.json dist -o claude-code-g2-hub.ehpk",
+    "pack": "npm run build:beta && node scripts/check-no-secrets.mjs beta && evenhub pack app.json dist -o claude-code-g2-hub.ehpk",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:bridge": "npm --prefix bridge test",
     "test:all": "npm test && npm run test:bridge",
     "bridge": "npm --prefix bridge start",
-    "check:secrets": "node scripts/check-no-secrets.mjs"
+    "check:secrets": "node scripts/check-no-secrets.mjs",
+    "build:beta": "tsc && vite build --mode beta",
+    "pack:release": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o claude-code-g2-hub-release.ehpk"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.13",

@@ -63,17 +63,30 @@ export async function saveConnectionProfile(
 }
 
 /**
- * Build-time bridge defaults, adopted ONLY when nothing is stored yet and ONLY
- * in a dev build. Without this the simulator always boots to "Open phone app to
- * configure bridge", which makes automated verification impossible — there is no
- * phone in the simulator to open.
+ * Bridge credentials baked in at build time, used only when nothing is stored.
  *
- * `import.meta.env.DEV` is false for `vite build`, so a packed `.ehpk` can never
- * carry a token even if `.env.local` exists on the machine that packed it. That
- * matters: anyone with the package can extract whatever is bundled in it.
+ * Whether these exist at all is decided by WHICH BUILD MODE ran, because Vite
+ * only loads a mode's own env files:
+ *
+ *   dev server     `.env.development.local`  the simulator can connect — there
+ *                                            is no phone in it to configure
+ *   `--mode beta`  `.env.beta.local`         a private / testing-group build the
+ *                                            wearer installs and just runs
+ *   production     neither                   `undefined`, so the phone setup
+ *                                            form is the only way in
+ *
+ * There is deliberately NO runtime guard here. A guard stops a value being USED,
+ * not being SHIPPED — Vite inlines `import.meta.env.VITE_*` as string literals,
+ * so the only thing that keeps a token out of a package is it not being defined
+ * when that package is built. `scripts/check-no-secrets.mjs` enforces exactly
+ * that, per mode.
+ *
+ * Baking a token is acceptable ONLY because the bridge sits behind
+ * `tailscale serve` with no funnel: it is unreachable from the public internet,
+ * so the token is useless to anyone not already on the tailnet. **If the bridge
+ * is ever exposed publicly, stop baking and require the form.**
  */
-function devDefaultProfile(): ConnectionProfile | null {
-  if (!import.meta.env.DEV) return null;
+function bakedInProfile(): ConnectionProfile | null {
   const url = import.meta.env.VITE_BRIDGE_URL ?? "";
   const token = import.meta.env.VITE_BRIDGE_TOKEN ?? "";
   if (!url || !token) return null;
@@ -99,7 +112,7 @@ export async function loadConnectionProfile(bridge: EvenAppBridge): Promise<Conn
     };
   }
 
-  return devDefaultProfile();
+  return bakedInProfile();
 }
 
 export async function updateActiveSession(

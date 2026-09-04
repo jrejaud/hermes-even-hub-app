@@ -1,45 +1,58 @@
 #!/usr/bin/env node
 /**
- * Fail the build if a dev credential got inlined into the production bundle.
+ * Assert that the built bundle carries exactly the credentials it is supposed to
+ * — no more, no fewer.
  *
- * This is not hypothetical. `.env.local` is loaded by Vite in EVERY mode,
+ * Usage: check-no-secrets.mjs [beta|release]
+ *
+ *   release  (default)  NOTHING from any env file may appear in dist/.
+ *   beta                the pair from `.env.beta.local` is EXPECTED (a
+ *                       testing-group build the wearer installs and just runs);
+ *                       anything else from any other env file is still a leak.
+ *
+ * Why this is not paranoia: `.env.local` is loaded by Vite in EVERY mode,
  * including `vite build`, and `import.meta.env.VITE_*` is statically replaced
  * with the literal value — so the bridge token was sitting in `dist/` and inside
- * the packed `.ehpk`, even though a runtime `import.meta.env.DEV` guard stopped
+ * the packed `.ehpk` even though a runtime `import.meta.env.DEV` guard stopped
  * the app from USING it (found 2026-09-04, by checking a claim that it was
  * clean). Anyone with an `.ehpk` can extract what is inside it.
  *
- * The fix was to move dev defaults to `.env.development.local`, which Vite loads
- * only when mode=development. This check is what stops that regressing quietly:
- * it reads whatever dev env files exist and asserts none of their values appear
- * in the build output.
- *
- * Runs as part of `npm run pack`, so a package that would leak cannot be built.
+ * Baking a token into a beta build is acceptable ONLY while the bridge is behind
+ * `tailscale serve` with no funnel — unreachable from the public internet, so
+ * the token is useless to anyone not already on the tailnet. Expose the bridge
+ * publicly and this whole mode should go away.
  */
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
+const MODE = (process.argv[2] ?? "release").toLowerCase();
+if (!["beta", "release"].includes(MODE)) {
+  console.error(`check-no-secrets: unknown mode "${MODE}" — want beta or release`);
+  process.exit(1);
+}
+
 const ROOT = new URL("..", import.meta.url).pathname;
 const DIST = join(ROOT, "dist");
-const ENV_FILES = [".env.local", ".env.development.local", ".env.development", ".env"];
+/** Files whose values must NEVER appear in a build, in any mode. */
+const FORBIDDEN_FILES = [".env", ".env.local", ".env.development", ".env.development.local"];
+/** Baked deliberately, and only in beta. */
+const BETA_FILE = ".env.beta.local";
 
 /** Values short enough to appear by coincidence are not evidence of a leak. */
 const MIN_SECRET_LENGTH = 12;
 
-function devValues() {
-  const found = [];
-  for (const name of ENV_FILES) {
-    const path = join(ROOT, name);
-    if (!existsSync(path)) continue;
-    for (const line of readFileSync(path, "utf8").split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
-      if (!m) continue;
-      const [, key, value] = m;
-      if (value.length >= MIN_SECRET_LENGTH) found.push({ file: name, key, value });
-    }
+function valuesIn(name) {
+  const path = join(ROOT, name);
+  if (!existsSync(path)) return [];
+  const out = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
+    if (!m) continue;
+    const [, key, value] = m;
+    if (value.length >= MIN_SECRET_LENGTH) out.push({ file: name, key, value });
   }
-  return found;
+  return out;
 }
 
 function bundleFiles(dir) {
@@ -57,36 +70,49 @@ if (!existsSync(DIST)) {
   process.exit(1);
 }
 
-const values = devValues();
-if (!values.length) {
-  console.log("check-no-secrets: no dev env values to check for");
-  process.exit(0);
-}
+const expected = MODE === "beta" ? valuesIn(BETA_FILE) : [];
+const forbidden = FORBIDDEN_FILES.flatMap(valuesIn)
+  // A value that is ALSO the intended beta value is not a leak — the same URL
+  // legitimately appears in both files.
+  .filter((f) => !expected.some((e) => e.value === f.value));
 
 const files = bundleFiles(DIST);
+const contents = files.map((f) => ({ file: f.replace(ROOT, ""), text: readFileSync(f) }));
+
 const leaks = [];
-for (const file of files) {
-  const content = readFileSync(file);
-  for (const v of values) {
-    // Keep BOTH names: which env file it came from, and which bundle file it
-    // landed in. Collapsing them into one `file` made the message say the
-    // secret came from the bundle it leaked into.
-    if (content.includes(v.value)) leaks.push({ ...v, bundle: file.replace(ROOT, "") });
+for (const c of contents) {
+  for (const v of forbidden) {
+    if (c.text.includes(v.value)) leaks.push({ ...v, bundle: c.file });
   }
 }
 
 if (leaks.length) {
-  console.error("check-no-secrets: DEV CREDENTIALS ARE IN THE PRODUCTION BUNDLE\n");
-  for (const l of leaks) {
-    console.error(`  ${l.key} (from ${l.file}) is inlined in ${l.bundle}`);
-  }
+  console.error(`check-no-secrets (${MODE}): CREDENTIALS ARE IN THE BUNDLE THAT SHOULD NOT BE\n`);
+  for (const l of leaks) console.error(`  ${l.key} (from ${l.file}) is inlined in ${l.bundle}`);
   console.error(
     "\nVite inlines import.meta.env.VITE_* as literals, and .env / .env.local are\n" +
-      "loaded in EVERY mode. Move dev-only values to .env.development.local, which\n" +
-      "is loaded only when mode=development. A runtime DEV guard is NOT enough —\n" +
-      "it stops the value being used, not being shipped.",
+      "loaded in EVERY mode. Dev-only values belong in .env.development.local and\n" +
+      "beta values in .env.beta.local, so a production build never sees either.\n" +
+      "A runtime DEV guard is NOT enough — it stops the value being used, not shipped.",
   );
   process.exit(1);
 }
 
-console.log(`check-no-secrets: clean — ${values.length} dev value(s) absent from ${files.length} bundle file(s)`);
+// In beta, the point is that the credentials ARE there. Silence would mean the
+// wearer installs a build that boots straight to the setup screen.
+if (MODE === "beta") {
+  if (!expected.length) {
+    console.error(`check-no-secrets (beta): ${BETA_FILE} has no values — a beta build must carry the bridge profile`);
+    process.exit(1);
+  }
+  const missing = expected.filter((e) => !contents.some((c) => c.text.includes(e.value)));
+  if (missing.length) {
+    console.error(`check-no-secrets (beta): expected value(s) NOT baked into the build: ${missing.map((m) => m.key).join(", ")}`);
+    console.error(`  Build with \`vite build --mode beta\` or ${BETA_FILE} is not loaded.`);
+    process.exit(1);
+  }
+  console.log(`check-no-secrets (beta): baked in ${expected.map((e) => e.key).join(", ")} — intended, tailnet-only bridge`);
+  console.log(`  no other env value leaked (${forbidden.length} checked across ${files.length} bundle file(s))`);
+} else {
+  console.log(`check-no-secrets (release): clean — ${forbidden.length} value(s) absent from ${files.length} bundle file(s)`);
+}

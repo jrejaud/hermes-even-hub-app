@@ -15,3 +15,6 @@ bridge/.env
 
 # playwright-cli session artifacts (screenshots, snapshots)
 .playwright-cli/
+
+# beta build credentials (baked into a testing-group .ehpk on purpose)
+.env.beta.local

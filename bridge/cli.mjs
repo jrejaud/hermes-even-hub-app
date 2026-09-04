@@ -186,6 +186,28 @@ switch (verb) {
     break;
   }
 
+  case "beta-env": {
+    // Bake the DEPLOYED bridge profile into `.env.beta.local`, which only
+    // `vite build --mode beta` loads. That is what makes a testing-group build
+    // installable-and-running with nothing to type on the phone.
+    //
+    // Safe only while the bridge is `tailscale serve` with no funnel: the token
+    // is useless to anyone not already on the tailnet. Pass the deployed URL
+    // explicitly with --url — defaulting to localhost here would ship a build
+    // that can never reach anything.
+    const { writeFileSync } = await import("node:fs");
+    if (!URL_.startsWith("wss://")) {
+      console.error(`beta-env: refusing to bake ${URL_} — a beta build needs the deployed wss:// origin (pass --url)`);
+      process.exit(1);
+    }
+    const out = new globalThis.URL("../.env.beta.local", import.meta.url).pathname;
+    writeFileSync(out, `VITE_BRIDGE_URL=${URL_}\nVITE_BRIDGE_TOKEN=${TOKEN}\n`);
+    console.log(`wrote ${out}`);
+    console.log(`  url:   ${URL_}`);
+    console.log(`  token: ${TOKEN.length} chars (from 1Password, not echoed)`);
+    break;
+  }
+
   case "app-env": {
     // Write the app's dev-only env so the simulator can auto-connect.
     //
