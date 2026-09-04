@@ -120,12 +120,41 @@ npm --prefix bridge start
 tailscale serve --https=8791 --bg http://localhost:8791
 ```
 
-**5. Point the app at it.** Install or sideload, open the phone companion
-surface, enter `wss://<node>.<tailnet>.ts.net:8791` and the same bridge token.
-The profile is stored at runtime via the Even SDK.
-**No token is ever bundled in the build** — anyone with an `.ehpk` can extract
-what is inside it. `.env.local` defaults are adopted only in a dev build
-(`import.meta.env.DEV`), purely so the simulator can connect.
+**5. Point the app at it.** How depends on which build you packed — see below.
+
+## Build modes, and where credentials come from
+
+Vite only loads a mode's own env files, and `import.meta.env.VITE_*` is inlined
+as a **string literal** at build time. So which mode you build in is the only
+thing that decides whether a package carries credentials. There is no runtime
+guard, deliberately: a guard stops a value being *used*, not being *shipped*.
+
+| Build | Env file loaded | Result |
+|---|---|---|
+| `npm run dev` | `.env.development.local` | the simulator connects — there is no phone in it to configure |
+| `npm run pack` | `.env.beta.local` | **testing-group build: bridge URL + token baked in**, installs and just runs |
+| `npm run pack:release` | *(neither)* | nothing baked; the phone setup form is the only way in |
+
+```bash
+# write .env.beta.local from the DEPLOYED bridge (token resolved from 1Password,
+# never on a command line)
+node bridge/cli.mjs beta-env --url wss://<node>.<tailnet>.ts.net:8791
+npm run pack
+```
+
+A stored profile always beats a baked-in one, so the phone form stays a working
+override rather than dead weight.
+
+🔑 **Baking a token is acceptable only while the bridge is `tailscale serve` with
+no funnel.** It is then unreachable from the public internet, so the token is
+useless to anyone not already on the tailnet — that network boundary, not the
+token, is the real control. Anyone with an `.ehpk` can extract what is inside it,
+so **if the bridge is ever exposed publicly, stop baking and require the form.**
+
+`scripts/check-no-secrets.mjs` enforces both directions and runs inside `pack`:
+in `beta` it asserts the two intended values *are* present (a beta build that
+boots to a setup screen is a broken beta build) and that nothing from any other
+env file is; in `release` it fails on anything at all.
 
 ## Commands
 
