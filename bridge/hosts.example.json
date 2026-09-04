@@ -1,21 +1,26 @@
 {
   "_comment": [
-    "Copy to hosts.json. Tokens are referenced by ENV NAME, never written here.",
-    "url is even-terminal's listener on that machine — 3457 here because 3456 is",
-    "taken by cyrus on Chiba. A host that is unreachable simply contributes no",
-    "sessions; it never fails the list."
+    "Copy to hosts.json. A token is NEVER written here — name it with tokenEnv",
+    "(an env var) or tokenOp ('<vault>/<item-id>[/<field>]', resolved through the",
+    "1Password CLI inside the bridge process, so it never reaches a command line).",
+    "url is even-terminal's listener on that machine, reachable from wherever the",
+    "bridge runs — a tailnet address is the usual answer. Port 3457 rather than",
+    "the default 3456, which collides with other tooling.",
+    "A host that is unreachable simply contributes no sessions; it never fails",
+    "the list, because an ad-hoc even-terminal on a laptop is offline most of the",
+    "time by design."
   ],
   "hosts": [
     {
       "key": "ov",
       "name": "overlord",
-      "url": "http://100.72.239.121:3457",
-      "tokenEnv": "EVEN_TERMINAL_TOKEN_OV"
+      "url": "http://<tailnet-ip-or-name>:3457",
+      "tokenOp": "Shared/<1password-item-id>"
     },
     {
       "key": "ch",
       "name": "chiba",
-      "url": "http://100.125.159.91:3457",
+      "url": "http://127.0.0.1:3457",
       "tokenEnv": "EVEN_TERMINAL_TOKEN_CH"
     }
   ]
