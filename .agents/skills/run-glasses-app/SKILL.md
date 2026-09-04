@@ -93,6 +93,49 @@ npm --prefix bridge start &
 node bridge/cli.mjs app-env      # writes .env.local (url + token), no secret on a command line
 ```
 
+## MANDATORY after ANY UI change — capture the gallery and grade it
+
+Jordan's standing instruction (2026-09-04): *"whenever you make anything, you run
+the simulator and you take screenshots of everything, you move things around, you
+grade yourself on how the UI looks, and make sure there's no obvious glitches."*
+
+**Tests do not catch UI defects.** Two shipped with a green suite: a header that
+ran under the connection dot, and a 🎤 the firmware silently dropped. Neither is
+visible from code or from a passing test — only from looking.
+
+```bash
+VITE_UI_GALLERY=1 npm run dev          # gallery mode, no bridge needed
+npm run sim
+node scripts/ui-gallery.mjs            # 16 PNGs -> docs/ui/
+```
+
+Then **open every PNG and actually look at it.** The script prints what each
+frame is for; it cannot see overlap, and says so.
+
+Grade each frame against these, and write the grade down:
+
+| Check | Fails when |
+|---|---|
+| **Nothing overlaps** | text runs under the connection dot, or a wrapped header lands on the body |
+| **Nothing is clipped** | a row ends mid-word with no `…`, or the right edge cuts a glyph |
+| **Every glyph renders** | an emoji or out-of-font character vanishes — leaving a stray space and no error |
+| **The state is obvious** | you cannot tell recording from idle, or connected from reconnecting, at a glance |
+| **Reading order is top-down** | the eye has to jump to find what changed |
+| **It fits the scale** | 576×288, ~10 lines at 27px pitch; nothing assumes a proportional-font column can align |
+
+**Add a frame to `src/dev/gallery.ts` for every new state you introduce.** A state
+with no frame is a state nobody will look at.
+
+### Reference: the constraints that generate most of these bugs
+
+- Font is **proportional** — columns cannot be aligned by padding.
+- **No emoji, at all**; unknown glyphs are dropped silently. Safe set:
+  `━ ─ █▇▆▅▄▃▂▁ ▲△▶▷▼▽◀◁ ●○ ■□ ★☆ ╭╮╯╰ │ ♠♣♥♦`.
+- Text containers **clip, then wrap** — an overflowing line does not error, it
+  invades the container below.
+- `rebuildPageContainer` / `textContainerUpgrade` reject **>~999 bytes** by
+  returning false with no error; the screen just does not change.
+
 ## Gotchas
 
 - **The simulator does not start the dev server.** Start `npm run dev` first or

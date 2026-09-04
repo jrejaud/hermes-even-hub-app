@@ -18,3 +18,6 @@ bridge/.env
 
 # beta build credentials (baked into a testing-group .ehpk on purpose)
 .env.beta.local
+
+# UI gallery captures — regenerate with `npm run ui:capture`
+docs/ui/*.png

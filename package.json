@@ -25,7 +25,9 @@
     "bridge": "npm --prefix bridge start",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "build:beta": "tsc && vite build --mode beta",
-    "pack:release": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o claude-code-g2-hub-release.ehpk"
+    "pack:release": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o claude-code-g2-hub-release.ehpk",
+    "dev:gallery": "VITE_UI_GALLERY=1 vite --host 0.0.0.0",
+    "ui:capture": "node scripts/ui-gallery.mjs"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.13",
