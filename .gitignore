@@ -12,3 +12,6 @@ docs/e2e/*.png
 # bridge runtime config — contains host URLs and references to token env vars
 bridge/hosts.json
 bridge/.env
+
+# playwright-cli session artifacts (screenshots, snapshots)
+.playwright-cli/
