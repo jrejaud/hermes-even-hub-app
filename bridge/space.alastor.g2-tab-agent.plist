@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  g2-tab-agent — types glasses utterances into the iTerm tab that already has
+  that Claude Code session open.
+
+  Runs as a USER agent, deliberately: driving iTerm needs an Apple event, and
+  only a process inside the logged-in GUI session is allowed to send one. A
+  daemon, or anything launched over ssh, is refused by TCC (-1743).
+
+  Source: ~/Development/claude-code-g2-hub/bridge/tab-agent.mjs
+  Config: ~/Development/claude-code-g2-hub/bridge/.env.tab-agent (0600)
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.alastor.g2-tab-agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/jrejaud/.local/share/fnm/node-versions/v22.22.1/installation/bin/node</string>
+    <string>--env-file-if-exists=/Users/jrejaud/Development/claude-code-g2-hub/bridge/.env.tab-agent</string>
+    <string>/Users/jrejaud/Development/claude-code-g2-hub/bridge/tab-agent.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/jrejaud/Development/claude-code-g2-hub/bridge</string>
+
+  <!--
+    launchd hands an agent a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), whose
+    python3 has no `iterm2` module — so the send failed with ModuleNotFoundError
+    rather than anything to do with permissions. Homebrew's python3 is the one
+    with the module installed.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/jrejaud/.local/state/g2-tab-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/jrejaud/.local/state/g2-tab-agent.log</string>
+</dict>
+</plist>
