@@ -1,24 +1,23 @@
 {
-  "package_id": "com.huntsyea.evendev",
+  "package_id": "space.alastor.ccg2",
   "edition": "202601",
-  "name": "Even Dev",
-  "version": "0.2.13",
-  "min_app_version": "2.0.0",
+  "name": "Claude Code",
+  "version": "0.3.0",
   "min_sdk_version": "0.0.10",
   "entrypoint": "index.html",
   "permissions": [
     {
       "name": "network",
-      "desc": "Connect to local Hermes bridge",
+      "desc": "Connect to the Claude Code bridge over Tailscale",
       "whitelist": [
         "https://*.ts.net",
         "wss://*.ts.net",
-        "https://*.tail587d25.ts.net",
-        "wss://*.tail587d25.ts.net",
-        "wss://hunters-mini.tail587d25.ts.net:8443"
+        "https://*.tailb04065.ts.net",
+        "wss://*.tailb04065.ts.net",
+        "wss://chiba.tailb04065.ts.net:8791"
       ]
     },
-    { "name": "g2-microphone", "desc": "Voice input for Hermes agent" }
+    { "name": "g2-microphone", "desc": "Speak prompts and answers to Claude Code" }
   ],
   "supported_languages": [
     "en"

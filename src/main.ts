@@ -4,7 +4,7 @@ import { loadBridgeDefaults } from "./config";
 import { BridgeClient } from "./net/ws-client";
 import { initialState, reduce, type AppState } from "./state/store";
 import { createLoadingStartup, createSetupStartup, showListPage, showLoadingPage, showSessionPage } from "./ui/render";
-import { loadingText, renderSession, listRows } from "./ui/views";
+import { loadingText, renderAlert, renderSession, listRows } from "./ui/views";
 import { renderPhoneSetup } from "./ui/phone";
 import { routeEvent, type ListSelection } from "./input/router";
 import { dispatch, type Gesture, type Effect } from "./input/dispatch";
@@ -42,14 +42,37 @@ async function boot(): Promise<void> {
     await createSetupStartup(bridge);
   }
 
-  const scheduleRender = serializeLatest((s: AppState) => {
-    if (glassesView === "setup") return Promise.resolve();
-    if (s.screen === "list") {
-      if (!s.sessionsLoaded) return showLoadingPage(bridge, loadingText(s));
-      visibleListRows = listRows(s);
-      return showListPage(bridge, visibleListRows);
+  // Which page shape is currently built on the glasses. The session page is the
+  // only one with several containers, so it must be rebuilt when we arrive and
+  // NOT on every streamed delta. Tracking it here (rather than only on gesture,
+  // as before) is what lets the SERVER move the screen — an activity alert
+  // arrives with no gesture behind it.
+  let builtPage: "loading" | "list" | "session" | "alert" | null = null;
+
+  const scheduleRender = serializeLatest(async (s: AppState) => {
+    if (glassesView === "setup") return;
+    if (s.screen === "alert") {
+      builtPage = "alert";
+      await renderAlert(bridge, s);
+      return;
     }
-    return renderSession(bridge, s);
+    if (s.screen === "list") {
+      if (!s.sessionsLoaded) {
+        builtPage = "loading";
+        await showLoadingPage(bridge, loadingText(s));
+        return;
+      }
+      visibleListRows = listRows(s);
+      builtPage = "list";
+      // Lists cannot update in place — every list render is a rebuild.
+      await showListPage(bridge, visibleListRows);
+      return;
+    }
+    if (builtPage !== "session") {
+      await showSessionPage(bridge);
+      builtPage = "session";
+    }
+    await renderSession(bridge, s);
   });
 
   const renderPhone = (): void => {
@@ -165,17 +188,11 @@ async function boot(): Promise<void> {
       return;
     }
 
-    const prevScreen = state.screen;
     const r = dispatch(state, g, index);
     state = r.state;
     for (const e of r.effects) runEffect(e);
-    if (state.screen !== prevScreen) {
-      if (state.screen === "list") {
-        visibleListRows = listRows(state);
-        await showListPage(bridge, visibleListRows);
-      }
-      else await showSessionPage(bridge);
-    }
+    // Page construction lives in scheduleRender so gesture-driven and
+    // server-driven screen changes take exactly the same path.
     scheduleRender(state);
   }
 

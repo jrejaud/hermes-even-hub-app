@@ -36,6 +36,11 @@ function renderItem(it: StreamItem): string {
     const body = it.text.split("\n").map((l) => ` ${l}`).join("\n");
     return `${RULE}\n${body}\n${RULE}`;
   }
+  if (it.kind === "ask") {
+    // A blocked agent is the loudest thing on the thread while it is waiting,
+    // and an ordinary history row once it has been answered.
+    return it.answered ? `? ${it.text}` : `${RULE}\n ? ${it.text}\n${RULE}`;
+  }
   return it.text; // assistant
 }
 
@@ -76,6 +81,42 @@ export function nextThreadViewportCursor(items: StreamItem[], scrollPage: number
   return next >= viewports.length - 1 ? null : next;
 }
 
+/**
+ * The SDK enforces a ~999-byte limit on `rebuildPageContainer` and
+ * `textContainerUpgrade` and **fails silently** — it resolves `false`, throws
+ * nothing, logs nothing, and the screen simply does not update, which looks
+ * exactly like a stale framebuffer. Wrapping is by PIXEL width, which does not
+ * bound UTF-8 byte length, so a viewport of non-ASCII text can bust the budget
+ * while looking perfectly sized. Clamp before we ever hand it over.
+ */
+export const VIEWPORT_BYTE_BUDGET = 960;
+const utf8 = new TextEncoder();
+
+export function byteLength(text: string): number {
+  return utf8.encode(text).length;
+}
+
+/** Trim a single line to a byte budget without splitting a UTF-8 sequence. */
+function clampLineBytes(line: string, maxBytes: number): string {
+  if (byteLength(line) <= maxBytes) return line;
+  const chars = Array.from(line);
+  while (chars.length && byteLength(chars.join("") + "…") > maxBytes) chars.pop();
+  return chars.join("") + "…";
+}
+
+/**
+ * Fit lines into the budget, dropping from the FRONT so the newest text
+ * survives — and capping each surviving line too, because one long line can
+ * exceed the budget on its own and a drop-from-front loop alone would still
+ * ship it.
+ */
+export function clampToBudget(lines: string[], maxBytes = VIEWPORT_BYTE_BUDGET): string {
+  const capped = lines.map((l) => clampLineBytes(l, maxBytes));
+  let start = 0;
+  while (start < capped.length - 1 && byteLength(capped.slice(start).join("\n")) > maxBytes) start++;
+  return capped.slice(start).join("\n");
+}
+
 function viewportsForText(text: string): ThreadViewport[] {
   const lines = wrapTextLines(text);
   const starts = viewportStarts(lines.length);
@@ -87,7 +128,7 @@ function viewportsForText(text: string): ThreadViewport[] {
       total,
       startLine,
       endLine,
-      content: lines.slice(startLine, endLine).join("\n"),
+      content: clampToBudget(lines.slice(startLine, endLine)),
     };
   });
 }

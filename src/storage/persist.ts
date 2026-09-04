@@ -12,8 +12,12 @@ export interface ProfileValidation {
   errors: string[];
 }
 
+// `hermes.*` keys are read as a migration fallback so an install carried over
+// from the upstream app keeps its bridge URL instead of landing on the setup
+// screen. New writes always go to the `ccg2.*` key.
 const KEYS = {
-  profile: "hermes.connectionProfile.v1",
+  profile: "ccg2.connectionProfile.v1",
+  legacyProfile: "hermes.connectionProfile.v1",
   oldUrl: "hermes.lastUrl",
   oldSession: "hermes.activeSession",
 } as const;
@@ -59,8 +63,9 @@ export async function saveConnectionProfile(
 }
 
 export async function loadConnectionProfile(bridge: EvenAppBridge): Promise<ConnectionProfile | null> {
-  const stored = await bridge.getLocalStorage(KEYS.profile);
-  if (stored) {
+  for (const key of [KEYS.profile, KEYS.legacyProfile]) {
+    const stored = await bridge.getLocalStorage(key);
+    if (!stored) continue;
     const parsed = parseProfile(stored);
     if (parsed) return parsed;
   }

@@ -1,11 +1,14 @@
 {
-  "name": "hermes-even-hub-app",
+  "name": "claude-code-g2-hub",
   "private": true,
-  "version": "0.2.13",
+  "version": "0.3.0",
   "type": "module",
-  "description": "Even Realities G2 glasses app (Even Hub WebView) — the client half of the G2 × Hermes bridge",
+  "description": "Even Hub app (Even Realities G2) driving Claude Code sessions across several hosts — a non-exclusive replacement for G2 Terminal mode",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/huntsyea/hermes-even-hub-app.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jrejaud/hermes-even-hub-app.git"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
@@ -14,9 +17,12 @@
     "sim:glow": "evenhub-simulator http://localhost:5173 --automation-port 9898 --glow",
     "sim:check": "node scripts/smoke-sim.mjs",
     "qr": "evenhub qr --url http://localhost:5173",
-    "pack": "npm run build && evenhub pack app.json dist -o hermes-even-hub-app.ehpk",
+    "pack": "npm run build && evenhub pack app.json dist -o claude-code-g2-hub.ehpk",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:bridge": "npm --prefix bridge test",
+    "test:all": "npm test && npm run test:bridge",
+    "bridge": "npm --prefix bridge start"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.13",

@@ -7,3 +7,7 @@ dist/
 
 # local simulator debug captures
 docs/e2e/*.png
+
+# bridge runtime config — contains host URLs and references to token env vars
+bridge/hosts.json
+bridge/.env

@@ -16,7 +16,7 @@ export const NAMES: Record<number, string> = {
 // re-entering a session uses rebuildPageContainer with these 4 text containers.
 function chatTextObjects(): TextContainerProperty[] {
   return [
-    new TextContainerProperty({ containerID: IDS.header, containerName: "header", xPosition: 0,   yPosition: 0,   width: 540, height: 40,  paddingLength: 4, content: "Hermes" }),
+    new TextContainerProperty({ containerID: IDS.header, containerName: "header", xPosition: 0,   yPosition: 0,   width: 540, height: 40,  paddingLength: 4, content: "Claude Code" }),
     new TextContainerProperty({ containerID: IDS.dot,    containerName: "dot",    xPosition: 540, yPosition: 0,   width: 36,  height: 40,  paddingLength: 4, content: "◌" }),
     new TextContainerProperty({ containerID: IDS.body,   containerName: "body",   xPosition: 0,   yPosition: 44,  width: 576, height: 200, paddingLength: 4, content: "", isEventCapture: 1 }),
     new TextContainerProperty({ containerID: IDS.status, containerName: "status", xPosition: 0,   yPosition: 248, width: 576, height: 36,  paddingLength: 4, content: "connecting…" }),
@@ -100,11 +100,26 @@ export async function createSetupStartup(bridge: EvenAppBridge): Promise<void> {
   }));
 }
 
-export async function showLoadingPage(bridge: EvenAppBridge, content: string): Promise<void> {
+// One full-height text container with event capture. Used for every page that
+// is just words: loading, setup, and the activity alert.
+async function showFullTextPage(bridge: EvenAppBridge, content: string): Promise<void> {
   await bridge.rebuildPageContainer(new RebuildPageContainer({
     containerTotalNum: 1,
     textObject: loadingTextObject(content),
   }));
+}
+
+export async function showLoadingPage(bridge: EvenAppBridge, content: string): Promise<void> {
+  await showFullTextPage(bridge, content);
+}
+
+/**
+ * The activity notification. Its own page rather than an overlay on the session
+ * screen, because inside a session a tap already means "record" — an alert that
+ * borrowed that gesture would be ambiguous exactly when it matters.
+ */
+export async function showAlertPage(bridge: EvenAppBridge, content: string): Promise<void> {
+  await showFullTextPage(bridge, content);
 }
 
 export async function showListPage(bridge: EvenAppBridge, rows: string[]): Promise<void> {

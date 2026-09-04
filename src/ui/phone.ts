@@ -25,7 +25,7 @@ export function renderPhoneSetup(
   const token = input("password", "Bridge token", state.profile?.token || state.defaults.token, "Shared bridge token");
   const header = el("header", "setup-header");
   const status = el("p", `setup-status ${statusClass(state.status)}`, statusText(state.status));
-  const title = el("h1", "", "Hermes");
+  const title = el("h1", "", "Claude Code");
   const intro = el("p", "setup-copy", "G2 bridge connection");
   const updated = state.profile?.updatedAt
     ? el("p", "setup-meta", `Last saved ${new Date(state.profile.updatedAt).toLocaleString()}`)

@@ -1,10 +1,18 @@
-import type { HistoryItem, ServerMsg, SessionItem } from "../protocol";
+import type { AskKind, HistoryItem, HostItem, ServerMsg, SessionItem } from "../protocol";
 
-export type Screen = "list" | "session";
+export type Screen = "list" | "session" | "alert";
 export type Phase = "idle" | "recording" | "transcribing" | "review";
 export type Turn = "idle" | "thinking" | "working";
 
 export type StreamItem = HistoryItem;
+
+/** A session other than the one on screen produced output. Tap opens it. */
+export interface Notice {
+  id: string;
+  host?: string;
+  title: string;
+  preview: string;
+}
 
 export interface AppState {
   screen: Screen;
@@ -12,11 +20,18 @@ export interface AppState {
   conn: string;
   sessions: { items: SessionItem[]; active: string | null };
   sessionsLoaded: boolean;
+  hosts: HostItem[];
   history: { loadingFor: string | null; failedFor: string | null };
   stream: StreamItem[];
   pending: { transcript: string } | null;
   turn: Turn;
   scrollPage: number | null; // null = follow latest viewport; number = measured viewport index (held)
+  /** Raised by an `activity` frame; owns the screen until opened or dismissed. */
+  notice: Notice | null;
+  /** Where dismissing the alert returns to. */
+  screenBeforeAlert: Screen;
+  /** Composite ids with activity the wearer has not looked at yet. */
+  unread: string[];
 }
 
 export function initialState(): AppState {
@@ -26,11 +41,15 @@ export function initialState(): AppState {
     conn: "connecting",
     sessions: { items: [], active: null },
     sessionsLoaded: false,
+    hosts: [],
     history: { loadingFor: null, failedFor: null },
     stream: [],
     pending: null,
     turn: "idle",
     scrollPage: null,
+    notice: null,
+    screenBeforeAlert: "list",
+    unread: [],
   };
 }
 
@@ -68,6 +87,26 @@ function patchTool(stream: StreamItem[], name: string, ok: boolean): StreamItem[
   return stream;
 }
 
+/** Mark the newest outstanding ask answered so the bar stops demanding a reply. */
+function closeAsk(stream: StreamItem[]): StreamItem[] {
+  for (let i = stream.length - 1; i >= 0; i--) {
+    const it = stream[i];
+    if (it.kind === "ask" && !it.answered) {
+      return [...stream.slice(0, i), { ...it, answered: true }, ...stream.slice(i + 1)];
+    }
+  }
+  return stream;
+}
+
+/** The newest ask still waiting on the wearer, if any. */
+export function openAsk(s: AppState): (StreamItem & { kind: "ask" }) | null {
+  for (let i = s.stream.length - 1; i >= 0; i--) {
+    const it = s.stream[i];
+    if (it.kind === "ask") return it.answered ? null : it;
+  }
+  return null;
+}
+
 export function reduce(s: AppState, m: ServerMsg): AppState {
   switch (m.t) {
     case "hello.ok":
@@ -76,6 +115,7 @@ export function reduce(s: AppState, m: ServerMsg): AppState {
       return {
         ...s,
         sessionsLoaded: true,
+        hosts: m.hosts ?? s.hosts,
         sessions: {
           items: m.items,
           active: isHistoryLoading(s) ? s.sessions.active : m.active,
@@ -86,6 +126,7 @@ export function reduce(s: AppState, m: ServerMsg): AppState {
         ...s,
         sessions: { ...s.sessions, active: m.id },
         history: { loadingFor: m.id, failedFor: null },
+        unread: s.unread.filter((id) => id !== m.id),
       };
     case "history":
       if (m.id !== s.sessions.active && m.id !== s.history.loadingFor) return s;
@@ -98,6 +139,7 @@ export function reduce(s: AppState, m: ServerMsg): AppState {
         phase: "idle",
         turn: "idle",
         scrollPage: null,
+        unread: s.unread.filter((id) => id !== m.id),
       };
     case "error":
       return { ...s, conn: `error: ${m.msg}` };
@@ -115,6 +157,31 @@ export function reduce(s: AppState, m: ServerMsg): AppState {
       };
     case "tool.end":
       return { ...s, stream: patchTool(s.stream, m.name, m.ok) };
+    case "ask":
+      // A blocked agent is the one thing that must never scroll off unseen:
+      // jump to the newest viewport and say what it is waiting for.
+      return {
+        ...s,
+        stream: [...s.stream, { kind: "ask", ask: m.ask as AskKind, text: m.text, options: m.options }],
+        turn: "idle",
+        scrollPage: null,
+      };
+    case "ask.done":
+      return { ...s, stream: closeAsk(s.stream), turn: "thinking" };
+    case "activity": {
+      if (m.id === s.sessions.active) return s;
+      const unread = s.unread.includes(m.id) ? s.unread : [...s.unread, m.id];
+      // Never steal the screen mid-utterance — an alert raised while recording
+      // would drop the mic and lose what was being said.
+      if (s.phase !== "idle" || s.screen === "alert") return { ...s, unread };
+      return {
+        ...s,
+        unread,
+        notice: { id: m.id, host: m.host, title: m.title, preview: m.preview },
+        screenBeforeAlert: s.screen,
+        screen: "alert",
+      };
+    }
     case "turn.done":
       return { ...s, turn: "idle" };
     case "transcript":
@@ -136,6 +203,9 @@ export function barText(s: AppState): string {
     default: {
       if (isHistoryLoading(s)) return "loading session...";
       if (isHistoryUnavailable(s)) return "history unavailable";
+      const asking = openAsk(s);
+      // The wearer has no keyboard: say plainly that speaking IS the answer.
+      if (asking) return asking.ask === "permission" ? "tap to answer · yes or no" : "tap to answer aloud";
       if (s.turn === "working") {
         for (let i = s.stream.length - 1; i >= 0; i--) {
           const it = s.stream[i];

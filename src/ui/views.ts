@@ -1,9 +1,9 @@
 import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
 import type { AppState, StreamItem } from "../state/store";
 import { barText, connDot, isHistoryLoading } from "../state/store";
-import { IDS, setText, showListPage, showLoadingPage } from "./render";
+import { IDS, setText, showAlertPage, showListPage, showLoadingPage } from "./render";
 import { LOADING_SESSIONS_ROW, sessionListRows, truncateTitle } from "./session-list";
-import { currentThreadViewport } from "./stream";
+import { clampToBudget, currentThreadViewport, wrapTextLines } from "./stream";
 
 export function truncateRow(title: string): string {
   return truncateTitle(title);
@@ -11,7 +11,10 @@ export function truncateRow(title: string): string {
 
 export function listRows(s: AppState, nowSeconds?: number): string[] {
   if (!s.sessionsLoaded) return [LOADING_SESSIONS_ROW];
-  return sessionListRows(s.sessions.items, s.sessions.active, nowSeconds);
+  return sessionListRows(s.sessions.items, s.sessions.active, nowSeconds, {
+    hosts: s.hosts,
+    unread: s.unread,
+  });
 }
 
 export async function renderList(bridge: EvenAppBridge, s: AppState): Promise<void> {
@@ -30,10 +33,29 @@ export function loadingText(s: AppState): string {
   return `loading sessions...\n${status}`;
 }
 
+/**
+ * The activity alert. Names the machine, because with several hosts in one list
+ * "which one just finished" is the first thing you need and the last thing a
+ * title tells you.
+ */
+export function alertText(s: AppState): string {
+  const n = s.notice;
+  if (!n) return "";
+  const where = n.host ? `● ${n.host} · ` : "● ";
+  const head = `${where}${truncateRow(n.title)}`;
+  const body = n.preview.trim() ? n.preview : "(no preview)";
+  return clampToBudget(wrapTextLines([head, "", body].join("\n")).concat(["", "tap = open · swipe↓ = dismiss"]));
+}
+
+export async function renderAlert(bridge: EvenAppBridge, s: AppState): Promise<void> {
+  await showAlertPage(bridge, alertText(s));
+}
+
 export async function renderSession(bridge: EvenAppBridge, s: AppState): Promise<void> {
   const active = s.sessions.items.find((i) => i.id === s.sessions.active);
-  const title = active && active.title.trim() ? truncateRow(active.title) : "Hermes";
-  await setText(bridge, IDS.header, title);
+  const title = active && active.title.trim() ? truncateRow(active.title) : "Claude Code";
+  const host = active?.host ? `${active.host} · ` : "";
+  await setText(bridge, IDS.header, `${host}${title}`);
   await setText(bridge, IDS.dot, connDot(s.conn));
 
   const body = isHistoryLoading(s)
@@ -63,5 +85,6 @@ function statusText(s: AppState): string {
   if (s.phase !== "idle" || items.length === 0) return base;
 
   const viewport = currentThreadViewport(items, s.scrollPage);
-  return viewport.total > 1 ? `${base} · ${viewport.index + 1}/${viewport.total}` : base;
+  const unread = s.unread.length ? ` · ${s.unread.length}*` : "";
+  return viewport.total > 1 ? `${base} · ${viewport.index + 1}/${viewport.total}${unread}` : `${base}${unread}`;
 }

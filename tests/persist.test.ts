@@ -29,7 +29,7 @@ describe("connection profile persistence", () => {
     await saveConnectionProfile(bridge, profile);
 
     expect(bridge.setLocalStorage).toHaveBeenCalledWith(
-      "hermes.connectionProfile.v1",
+      "ccg2.connectionProfile.v1",
       JSON.stringify({
         url: "wss://node.tailnet.ts.net:8443",
         token: "tok",
@@ -41,7 +41,7 @@ describe("connection profile persistence", () => {
 
   it("loads a saved runtime profile", async () => {
     const bridge = makeBridge({
-      "hermes.connectionProfile.v1": JSON.stringify({
+      "ccg2.connectionProfile.v1": JSON.stringify({
         url: "wss://node.tailnet.ts.net:8443",
         token: "tok",
         activeSession: "sess-xyz",
@@ -110,5 +110,22 @@ describe("connection profile validation", () => {
       "Bridge URL must start with wss:// or ws://.",
       "Bridge token is required.",
     ]);
+  });
+});
+
+describe("upstream migration", () => {
+  it("adopts a profile left by the Hermes build instead of showing setup again", async () => {
+    const bridge = makeBridge({
+      "hermes.connectionProfile.v1": JSON.stringify({
+        url: "wss://node.tailnet.ts.net:8443",
+        token: "tok",
+        updatedAt: 3,
+      }),
+    });
+
+    await expect(loadConnectionProfile(bridge)).resolves.toMatchObject({
+      url: "wss://node.tailnet.ts.net:8443",
+      token: "tok",
+    });
   });
 });

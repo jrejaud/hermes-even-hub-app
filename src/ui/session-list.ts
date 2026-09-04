@@ -1,5 +1,5 @@
 import { getTextWidth } from "@evenrealities/pretext";
-import type { SessionItem } from "../protocol";
+import type { HostItem, SessionItem } from "../protocol";
 
 export const NEW_SESSION_ROW = "＋ New session";
 export const LOADING_SESSIONS_ROW = "loading sessions...";
@@ -25,9 +25,23 @@ export function orderedSessions(items: SessionItem[]): SessionItem[] {
     .map(({ item }) => item);
 }
 
-export function sessionForListIndex(items: SessionItem[], index: number): SessionItem | undefined {
-  if (index <= 0) return undefined;
-  return orderedSessions(items)[index - 1];
+/**
+ * One `＋New` row per host, so picking where a session spawns costs no extra
+ * screen and no extra gesture. A single-host bridge keeps the original one row,
+ * which is why upstream behaviour is unchanged when `hosts` is empty.
+ */
+export function newSessionRows(hosts: HostItem[]): string[] {
+  if (hosts.length <= 1) return [NEW_SESSION_ROW];
+  return hosts.map((h) => truncateBytes(`＋ New · ${h.name}${h.online ? "" : " (off)"}`, MAX_ITEM_BYTES));
+}
+
+export function sessionForListIndex(
+  items: SessionItem[],
+  index: number,
+  newRowCount = 1,
+): SessionItem | undefined {
+  if (index < newRowCount) return undefined;
+  return orderedSessions(items)[index - newRowCount];
 }
 
 export function displayTitle(title: string): string {
@@ -59,16 +73,25 @@ export function sessionListRows(
   items: SessionItem[],
   active: string | null,
   nowSeconds = Math.floor(Date.now() / 1000),
+  { hosts = [], unread = [] }: { hosts?: HostItem[]; unread?: string[] } = {},
 ): string[] {
+  const showHost = hosts.length > 1;
   return [
-    NEW_SESSION_ROW,
-    ...orderedSessions(items).map((item) => formatSessionRow(item, active, nowSeconds)),
+    ...newSessionRows(hosts),
+    ...orderedSessions(items).map((item) => formatSessionRow(item, active, nowSeconds, showHost, unread)),
   ];
 }
 
-function formatSessionRow(item: SessionItem, active: string | null, nowSeconds: number): string {
-  const marker = item.id === active ? "●" : " ";
-  const prefix = `${marker} ${compactAge(item.updated, nowSeconds)} `;
+function formatSessionRow(
+  item: SessionItem,
+  active: string | null,
+  nowSeconds: number,
+  showHost: boolean,
+  unread: string[],
+): string {
+  const marker = item.id === active ? "●" : unread.includes(item.id) ? "*" : " ";
+  const hostTag = showHost && item.host ? `${item.host} ` : "";
+  const prefix = `${marker} ${compactAge(item.updated, nowSeconds)} ${hostTag}`;
   const title = truncateTitle(
     sessionRowTitle(item),
     LIST_ROW_WIDTH_PX - getTextWidth(prefix),

@@ -1,6 +1,6 @@
 import type { AppState } from "../state/store";
 import { sessionsNew, sessionsSwitch, textMsg, sessionsList } from "../protocol";
-import { sessionForListIndex } from "../ui/session-list";
+import { newSessionRows, sessionForListIndex } from "../ui/session-list";
 import { nextThreadViewportCursor, previousThreadViewportIndex } from "../ui/stream";
 
 export type Gesture = "click" | "doubleClick" | "scrollUp" | "scrollDown";
@@ -21,14 +21,43 @@ const enterSession = (s: AppState, active: string | null): AppState => ({
 });
 
 export function dispatch(s: AppState, g: Gesture, index?: number): DispatchResult {
+  // The activity alert owns every gesture while it is up: tap goes straight to
+  // the session that moved, anything else dismisses back to where you were.
+  if (s.screen === "alert") {
+    const notice = s.notice;
+    const dismissed: AppState = { ...s, notice: null, screen: s.screenBeforeAlert };
+    if (g === "click" && notice) {
+      return {
+        state: { ...enterSession(s, notice.id), notice: null, unread: s.unread.filter((id) => id !== notice.id) },
+        effects: [{ kind: "send", frame: sessionsSwitch(notice.id) }],
+      };
+    }
+    return {
+      state: dismissed,
+      effects: dismissed.screen === "list" ? [{ kind: "send", frame: sessionsList() }] : [],
+    };
+  }
+
   if (s.screen === "list") {
     if (!s.sessionsLoaded) return { state: s, effects: [] };
     if (g === "click") {
-      const i = index ?? 0; // proto3 omits index 0 → undefined means the ＋New row
-      if (i === 0) return { state: enterSession(s, null), effects: [{ kind: "send", frame: sessionsNew() }] };
-      const item = sessionForListIndex(s.sessions.items, i);
+      const i = index ?? 0; // proto3 omits index 0 → undefined means the first ＋New row
+      // A name lookup that found nothing yields -1. It must stay a no-op, not
+      // fall into the ＋New branch and spawn a session nobody asked for.
+      if (i < 0) return { state: s, effects: [] };
+      const newRows = newSessionRows(s.hosts);
+      if (i < newRows.length) {
+        // With several hosts each ＋New row names one, so choosing where a
+        // session spawns costs no extra screen and no extra gesture.
+        const host = s.hosts.length > 1 ? s.hosts[i]?.key : undefined;
+        return { state: enterSession(s, null), effects: [{ kind: "send", frame: sessionsNew(host) }] };
+      }
+      const item = sessionForListIndex(s.sessions.items, i, newRows.length);
       if (!item) return { state: s, effects: [] };
-      return { state: enterSession(s, item.id), effects: [{ kind: "send", frame: sessionsSwitch(item.id) }] };
+      return {
+        state: { ...enterSession(s, item.id), unread: s.unread.filter((id) => id !== item.id) },
+        effects: [{ kind: "send", frame: sessionsSwitch(item.id) }],
+      };
     }
     if (g === "doubleClick") return { state: s, effects: [{ kind: "exit" }] };
     return { state: s, effects: [] };

@@ -1,0 +1,19 @@
+{
+  "name": "claude-code-g2-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Bridges the Even Hub glasses app to Claude Code sessions on any number of hosts, via even-terminal's HTTP API",
+  "license": "MIT",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test 'test/*.test.mjs'"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

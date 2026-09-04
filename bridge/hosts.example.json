@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Copy to hosts.json. Tokens are referenced by ENV NAME, never written here.",
+    "url is even-terminal's listener on that machine — 3457 here because 3456 is",
+    "taken by cyrus on Chiba. A host that is unreachable simply contributes no",
+    "sessions; it never fails the list."
+  ],
+  "hosts": [
+    {
+      "key": "ov",
+      "name": "overlord",
+      "url": "http://100.72.239.121:3457",
+      "tokenEnv": "EVEN_TERMINAL_TOKEN_OV"
+    },
+    {
+      "key": "ch",
+      "name": "chiba",
+      "url": "http://100.125.159.91:3457",
+      "tokenEnv": "EVEN_TERMINAL_TOKEN_CH"
+    }
+  ]
+}
