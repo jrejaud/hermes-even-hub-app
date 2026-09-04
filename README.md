@@ -163,7 +163,8 @@ npm run dev          # Vite dev server (for the simulator or sideloading)
 npm run sim          # Even Hub simulator, automation on :9898
 npm run sim:check    # scripted smoke test against the simulator
 npm run qr           # QR for sideloading to real glasses
-npm run pack         # build + package as .ehpk
+npm run pack         # beta build (bridge credentials baked) → .ehpk
+npm run pack:release # production build (setup form required) → .ehpk
 npm test             # client tests (vitest)
 npm run test:bridge  # bridge tests (node --test)
 npm run test:all     # both
