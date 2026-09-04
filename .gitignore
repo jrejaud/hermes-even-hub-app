@@ -4,6 +4,7 @@ dist/
 .DS_Store
 *.log
 .env.local
+.env.development.local
 
 # local simulator debug captures
 docs/e2e/*.png

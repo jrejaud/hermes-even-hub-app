@@ -17,12 +17,13 @@
     "sim:glow": "evenhub-simulator http://localhost:5173 --automation-port 9898 --glow",
     "sim:check": "node scripts/smoke-sim.mjs",
     "qr": "evenhub qr --url http://localhost:5173",
-    "pack": "npm run build && evenhub pack app.json dist -o claude-code-g2-hub.ehpk",
+    "pack": "npm run build && npm run check:secrets && evenhub pack app.json dist -o claude-code-g2-hub.ehpk",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:bridge": "npm --prefix bridge test",
     "test:all": "npm test && npm run test:bridge",
-    "bridge": "npm --prefix bridge start"
+    "bridge": "npm --prefix bridge start",
+    "check:secrets": "node scripts/check-no-secrets.mjs"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.13",

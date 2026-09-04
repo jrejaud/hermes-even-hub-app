@@ -181,12 +181,18 @@ switch (verb) {
   }
 
   case "app-env": {
-    // Write the app's dev-only .env.local so the simulator can auto-connect.
-    // Resolving the token here keeps it off every command line; the app adopts
-    // these values ONLY in a dev build (see src/storage/persist.ts), so they can
-    // never end up inside a packed .ehpk.
+    // Write the app's dev-only env so the simulator can auto-connect.
+    //
+    // The filename is load-bearing. Vite loads `.env.local` in EVERY mode,
+    // including `vite build`, and statically inlines `import.meta.env.VITE_*`
+    // into the bundle — so a token in `.env.local` ends up inside the packed
+    // .ehpk even though a runtime `import.meta.env.DEV` guard stops it being
+    // USED. Verified by grepping dist/ and finding it there (2026-09-04).
+    // `.env.development.local` is loaded only when mode=development, so a
+    // production build sees `undefined` and there is nothing to inline.
+    // Anyone with an .ehpk can extract whatever is in it.
     const { writeFileSync } = await import("node:fs");
-    const out = new globalThis.URL("../.env.local", import.meta.url).pathname;
+    const out = new globalThis.URL("../.env.development.local", import.meta.url).pathname;
     writeFileSync(out, `VITE_BRIDGE_URL=${URL_}\nVITE_BRIDGE_TOKEN=${TOKEN}\n`);
     console.log(`wrote ${out} (url=${URL_}, token=${TOKEN.length} chars)`);
     break;
