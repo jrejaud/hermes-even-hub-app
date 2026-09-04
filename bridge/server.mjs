@@ -21,6 +21,7 @@ import { WebSocketServer } from "ws";
 
 import { loadHosts, readOp } from "./hosts.mjs";
 import { Fleet, ActivityWatcher } from "./fleet.mjs";
+import { TerminalRouter } from "./terminal.mjs";
 import { SessionPump } from "./pump.mjs";
 import { createTranscriber } from "./stt.mjs";
 import { activity as activityFrame, error as errorFrame, helloOk, parseClient, sessions as sessionsFrame, transcript as transcriptFrame } from "./protocol.mjs";
@@ -49,6 +50,20 @@ const watcher = new ActivityWatcher(fleet, {
 });
 const stt = createTranscriber(process.env, { log, hostNames: fleet.hostList().map((h) => h.name) });
 
+/**
+ * Where each host's TERMINALS are, so an utterance about a session you already
+ * have open on screen goes into that tab rather than starting a second agent
+ * against the same transcript. A host with no `terminalSsh` in hosts.json has no
+ * terminals to route to (a Linux VPS has no iTerm) and always uses even-terminal.
+ * `""` means "this machine".
+ */
+const terminal = new TerminalRouter({
+  hosts: Object.fromEntries(
+    loadHosts(HOSTS_FILE).flatMap((h) => (h.terminalSsh === undefined ? [] : [[h.key, h.terminalSsh]])),
+  ),
+  log,
+});
+
 const httpServer = http.createServer((req, res) => {
   if (req.url?.startsWith("/health")) {
     const body = JSON.stringify({
@@ -73,7 +88,7 @@ wss.on("connection", (ws, req) => {
   const emit = (frame) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(frame));
   };
-  const pump = new SessionPump(fleet, emit, { log });
+  const pump = new SessionPump(fleet, emit, { log, terminal });
 
   const helloTimer = setTimeout(() => {
     if (!authed) ws.close(1008, "unauthorized: no hello");

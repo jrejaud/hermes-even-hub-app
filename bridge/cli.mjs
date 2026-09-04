@@ -186,6 +186,34 @@ switch (verb) {
     break;
   }
 
+  case "tabs": {
+    // Which sessions are open in a real terminal — i.e. which ones an utterance
+    // will be TYPED INTO rather than sent to a second agent. Read-only.
+    const { TerminalRouter } = await import("./terminal.mjs");
+    const { loadHosts } = await import("./hosts.mjs");
+    const hostsFile = new globalThis.URL("./hosts.json", import.meta.url).pathname;
+    const cfg = loadHosts(hostsFile);
+    const router = new TerminalRouter({
+      hosts: Object.fromEntries(cfg.flatMap((h) => (h.terminalSsh === undefined ? [] : [[h.key, h.terminalSsh]]))),
+      log: (m) => console.log(`  ${m}`),
+    });
+
+    for (const h of cfg) {
+      const routed = router.handles(h.key);
+      console.log(`\n${h.key} (${h.name}) — ${routed ? `terminals via ${router.hosts[h.key] || "this machine"}` : "no terminals; always even-terminal"}`);
+      if (!routed) continue;
+      const r = await router.run(h.key, `for f in "$HOME"/.local/state/claude-sessions/*.json; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -c 'select(.open==true) | {session_id, iterm_uuid, cwd}'`);
+      const rows = (r.out ?? "").trim().split("\n").filter(Boolean);
+      if (!rows.length) { console.log("  (no open sessions registered)"); continue; }
+      for (const row of rows) {
+        const s = JSON.parse(row);
+        const live = await router.tabExists(h.key, s.iterm_uuid);
+        console.log(`  ${live ? "●" : "○"} ${s.session_id}  tab=${s.iterm_uuid}  ${live ? "LIVE — utterances go here" : "tab gone — falls back"}  ${s.cwd}`);
+      }
+    }
+    break;
+  }
+
   case "beta-env": {
     // Bake the DEPLOYED bridge profile into `.env.beta.local`, which only
     // `vite build --mode beta` loads. That is what makes a testing-group build

@@ -13,7 +13,7 @@
  *   - catch up on anything raised after we stopped listening, before routing
  */
 
-import { active as activeFrame, askDone, error as errorFrame, history as historyFrame } from "./protocol.mjs";
+import { active as activeFrame, askDone, assistant as assistantFrame, error as errorFrame, history as historyFrame, turnDone } from "./protocol.mjs";
 import { framesFor, historyItems, withPreamble } from "./translate.mjs";
 import { carriedCorrection, isResetUtterance, isStatusUtterance, permissionDecision, stripWakeWord } from "./answer.mjs";
 import { isDeadSession } from "./even-terminal.mjs";
@@ -21,6 +21,8 @@ import { isDeadSession } from "./even-terminal.mjs";
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 400);
 /** Two identical utterances this close together are one utterance, sent twice. */
 const DEDUPE_WINDOW_MS = Number(process.env.DEDUPE_WINDOW_MS ?? 6_000);
+/** Polls with no new transcript lines before a terminal-backed turn is called done. */
+const TERMINAL_QUIET_TICKS = Number(process.env.TERMINAL_QUIET_TICKS ?? 6);
 
 // LENS_PREAMBLE / withPreamble / stripPreamble live in translate.mjs, next to
 // the history mapping that has to take the preamble back out again.
@@ -31,7 +33,7 @@ export class SessionPump {
    * @param {import('./fleet.mjs').Fleet} fleet
    * @param {(frame: object) => void} emit
    */
-  constructor(fleet, emit, { log = () => {} } = {}) {
+  constructor(fleet, emit, { log = () => {}, terminal = null } = {}) {
     this.fleet = fleet;
     this.emit = emit;
     this.log = log;
@@ -47,6 +49,14 @@ export class SessionPump {
     this.primed = false;
     this.lastPrompt = { text: null, at: 0 };
     this.timer = undefined;
+
+    /** Routes an utterance into the tab that already has this session open. */
+    this.terminal = terminal;
+    /** True while the CURRENT turn is being run by a terminal, not even-terminal. */
+    this.viaTerminal = false;
+    /** How many disk-history items have already been emitted this turn. */
+    this.historyCursor = 0;
+    this.quietTicks = 0;
   }
 
   get attached() {
@@ -177,6 +187,12 @@ export class SessionPump {
     }
     this.lastPrompt = { text, at: now };
 
+    // If this session is open in a live terminal, TYPE IT THERE instead.
+    // Prompting even-terminal would start a second agent against the same
+    // transcript: the tab shows nothing, and the two halves of the conversation
+    // drift. One process, one transcript, every surface in sync.
+    if (await this.routeToTerminal(text)) return;
+
     const body = this.sessionId ? text : withPreamble(text);
     let spawned;
     try {
@@ -206,6 +222,70 @@ export class SessionPump {
       this.emit(activeFrame(this.compositeId));
     }
     this.startPolling();
+  }
+
+  /**
+   * Try to deliver the utterance to the terminal that owns this session.
+   * Returns true when it was handled there; false to fall through to
+   * even-terminal (no live tab, no router, or the send failed).
+   *
+   * The tradeoff, stated plainly: a terminal-backed turn is read back from the
+   * transcript on disk, so there is NO token-by-token streaming — the reply
+   * appears when it lands, not as it is written. That is the price of the tab
+   * and the lens showing the same conversation, and it is the right trade: a
+   * silent divergence between two agents is worse than a slower reply.
+   */
+  async routeToTerminal(text) {
+    if (!this.terminal || !this.sessionId || !this.host) return false;
+    const uuid = await this.terminal.resolve(this.sessionId, this.host.key);
+    if (!uuid) return false;
+
+    const items = await this.historyItemsSafe();
+    if (!(await this.terminal.send(uuid, text, this.host.key))) {
+      this.terminal.invalidate(this.sessionId, this.host.key);
+      this.log(`[pump] terminal send failed — falling back to even-terminal`);
+      return false;
+    }
+    this.viaTerminal = true;
+    this.historyCursor = items.length;
+    this.startPolling();
+    return true;
+  }
+
+  async historyItemsSafe() {
+    try {
+      return historyItems(await this.host.history(this.sessionId));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read a terminal-backed turn back off disk.
+   *
+   * even-terminal is not running this turn, so its in-memory ring is empty and
+   * `/api/messages` says nothing. The transcript is the only source. The turn is
+   * treated as finished once the history stops growing for a few ticks — there
+   * is no end-of-turn marker on disk to wait for.
+   */
+  async drainTerminal() {
+    if (!this.attached) return;
+    const items = await this.historyItemsSafe();
+    if (items.length > this.historyCursor) {
+      for (const item of items.slice(this.historyCursor)) {
+        // The wearer's own line is already on the thread — the client appended
+        // it when they tapped send. Re-emitting it would double it.
+        if (item.kind === "assistant") this.emit(assistantFrame(item.text));
+      }
+      this.historyCursor = items.length;
+      this.quietTicks = 0;
+      return;
+    }
+    if (this.historyCursor > 0 && ++this.quietTicks >= TERMINAL_QUIET_TICKS) {
+      this.emit(turnDone());
+      this.viaTerminal = false;
+      this.quietTicks = 0;
+    }
   }
 
   async answerPermission(utterance) {
@@ -259,6 +339,9 @@ export class SessionPump {
   /** One poll: pull everything new and turn it into frames. */
   async drain() {
     if (!this.attached) return;
+    // A terminal-backed turn is not in even-terminal's ring at all — the tab is
+    // running it, and the transcript on disk is the only place it appears.
+    if (this.viaTerminal) return this.drainTerminal();
     let r;
     try {
       r = await this.host.messages(this.sessionId, this.lastSeenId);

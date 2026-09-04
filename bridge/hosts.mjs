@@ -51,6 +51,8 @@ export function loadHosts(path, env = process.env) {
       url: h.url,
       token: resolveToken(h, env),
       provider: h.provider ?? "claude",
+      // How this machine reaches that host's terminals. Absent = it has none.
+      terminalSsh: h.terminalSsh,
     };
   });
 }
