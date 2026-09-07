@@ -4,7 +4,7 @@ import { loadBridgeDefaults } from "./config";
 import { BridgeClient } from "./net/ws-client";
 import { initialState, reduce, type AppState } from "./state/store";
 import { createLoadingStartup, createSetupStartup, showListPage, showLoadingPage, showSessionPage } from "./ui/render";
-import { loadingText, renderSession, listRows } from "./ui/views";
+import { loadingText, renderSession, buildListView, type ListView } from "./ui/views";
 import { renderPhoneSetup } from "./ui/phone";
 import { routeEvent, type ListSelection } from "./input/router";
 import { dispatch, type Gesture, type Effect } from "./input/dispatch";
@@ -31,7 +31,8 @@ async function boot(): Promise<void> {
   let state: AppState = initialState();
   let phoneErrors: string[] = [];
   let glassesView: "setup" | "list" = profileIsReady(profile) ? "list" : "setup";
-  let visibleListRows = listRows(state);
+  let shownList: ListView = buildListView(state);
+  let visibleListRows = shownList.rows;
   let helloOk = false;
   let sessionsRetryTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -46,7 +47,8 @@ async function boot(): Promise<void> {
     if (glassesView === "setup") return Promise.resolve();
     if (s.screen === "list") {
       if (!s.sessionsLoaded) return showLoadingPage(bridge, loadingText(s));
-      visibleListRows = listRows(s);
+      shownList = buildListView(s);
+      visibleListRows = shownList.rows;
       return showListPage(bridge, visibleListRows);
     }
     return renderSession(bridge, s);
@@ -166,12 +168,14 @@ async function boot(): Promise<void> {
     }
 
     const prevScreen = state.screen;
-    const r = dispatch(state, g, index);
+    // Resolve the tap against what is ON SCREEN — the list re-sorts underneath us.
+    const r = dispatch(state, g, index, shownList);
     state = r.state;
     for (const e of r.effects) runEffect(e);
     if (state.screen !== prevScreen) {
       if (state.screen === "list") {
-        visibleListRows = listRows(state);
+        shownList = buildListView(state);
+        visibleListRows = shownList.rows;
         await showListPage(bridge, visibleListRows);
       }
       else await showSessionPage(bridge);
