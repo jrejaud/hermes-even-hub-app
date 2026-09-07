@@ -21,6 +21,13 @@ import {
 
 const fireAndForget = (p: Promise<unknown>): void => { void p.catch(() => {}); };
 
+/**
+ * How long after a scroll the list is treated as "being read", and rebuilds are
+ * held back. Long enough to page through a full list without being yanked to
+ * the top by an incoming `sessions` frame.
+ */
+const LIST_SCROLL_GRACE_MS = 8_000;
+
 async function boot(): Promise<void> {
   const root = document.querySelector<HTMLElement>("#app");
   if (!root) throw new Error("Missing #app root");
@@ -33,6 +40,10 @@ async function boot(): Promise<void> {
   let glassesView: "setup" | "list" = profileIsReady(profile) ? "list" : "setup";
   let shownList: ListView = buildListView(state);
   let visibleListRows = shownList.rows;
+  /** When the wearer last scrolled the list — a rebuild while reading is hostile. */
+  let lastListScrollAt = 0;
+  /** Whether the list page is the one currently built on the glasses. */
+  let listRendered = false;
   let helloOk = false;
   let sessionsRetryTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -43,15 +54,35 @@ async function boot(): Promise<void> {
     await createSetupStartup(bridge);
   }
 
-  const scheduleRender = serializeLatest((s: AppState) => {
-    if (glassesView === "setup") return Promise.resolve();
+  const scheduleRender = serializeLatest(async (s: AppState) => {
+    if (glassesView === "setup") return;
     if (s.screen === "list") {
-      if (!s.sessionsLoaded) return showLoadingPage(bridge, loadingText(s));
-      shownList = buildListView(s);
-      visibleListRows = shownList.rows;
-      return showListPage(bridge, visibleListRows);
+      if (!s.sessionsLoaded) {
+        await showLoadingPage(bridge, loadingText(s));
+        return;
+      }
+      const next = buildListView(s);
+      // A list cannot be updated in place, so every render is a full rebuild —
+      // and a rebuild throws away the native scroll position and selection.
+      // Two guards, because `sessions` frames arrive on their own schedule and
+      // would otherwise yank the wearer back to the top mid-scroll:
+      //   1. identical rows → nothing to show, skip
+      //   2. scrolled in the last few seconds → they are reading, defer
+      const unchanged =
+        next.rows.length === shownList.rows.length && next.rows.every((r, i) => r === shownList.rows[i]);
+      const browsing = Date.now() - lastListScrollAt < LIST_SCROLL_GRACE_MS;
+      if (listRendered && (unchanged || browsing)) return;
+
+      // Only adopt the snapshot when it is actually drawn — a tap resolves
+      // against it, so a stale one would open the wrong row.
+      shownList = next;
+      visibleListRows = next.rows;
+      listRendered = true;
+      await showListPage(bridge, next.rows);
+      return;
     }
-    return renderSession(bridge, s);
+    listRendered = false;
+    await renderSession(bridge, s);
   });
 
   const renderPhone = (): void => {
@@ -168,6 +199,8 @@ async function boot(): Promise<void> {
     }
 
     const prevScreen = state.screen;
+    if (state.screen === "list" && (g === "scrollUp" || g === "scrollDown")) lastListScrollAt = Date.now();
+
     // Resolve the tap against what is ON SCREEN — the list re-sorts underneath us.
     const r = dispatch(state, g, index, shownList);
     state = r.state;
@@ -176,9 +209,13 @@ async function boot(): Promise<void> {
       if (state.screen === "list") {
         shownList = buildListView(state);
         visibleListRows = shownList.rows;
+        listRendered = true;
         await showListPage(bridge, visibleListRows);
       }
-      else await showSessionPage(bridge);
+      else {
+        listRendered = false;
+        await showSessionPage(bridge);
+      }
     }
     scheduleRender(state);
   }
