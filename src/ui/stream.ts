@@ -41,6 +41,11 @@ function renderItem(it: StreamItem): string {
     // and an ordinary history row once it has been answered.
     return it.answered ? `? ${it.text}` : `${RULE}\n ? ${it.text}\n${RULE}`;
   }
+  if (it.kind === "error") {
+    // Same treatment as an unanswered ask: the two things the wearer must not
+    // scroll past without noticing are "it is waiting on you" and "it broke".
+    return `${RULE}\n ! ${it.text}\n${RULE}`;
+  }
   return it.text; // assistant
 }
 

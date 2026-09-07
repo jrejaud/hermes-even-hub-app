@@ -74,9 +74,10 @@ export const FRAMES: GalleryFrame[] = [
     state: base({ screen: "list", sessions: { items: SESSIONS, active: null } }),
   },
   {
-    name: "04-list-unread",
-    looking_for: "the * unread marker reads as a marker, not as part of the title",
-    state: base({ screen: "list", sessions: { items: SESSIONS, active: null }, unread: ["ch/2", "ov/3"] }),
+    name: "04-list-markers",
+    looking_for:
+      "all THREE markers at once — ▶ the one you are in, ● unseen activity, blank neither. They must be distinguishable at a glance, not on inspection.",
+    state: base({ screen: "list", sessions: { items: SESSIONS, active: "ov/1" }, unread: ["ch/2", "ov/3"] }),
   },
   {
     name: "05-list-host-offline",
@@ -185,6 +186,27 @@ export const FRAMES: GalleryFrame[] = [
       sessions: { items: SESSIONS, active: "ch/2" },
       stream: [{ kind: "assistant", text: "Ready." }],
     }),
+  },
+  {
+    name: "17-session-error",
+    looking_for: "an error must be as loud as a blocked agent — the wearer has no console",
+    state: base({
+      screen: "session",
+      stream: [
+        { kind: "user", text: "restart the bridge" },
+        { kind: "error", text: "host ov unreachable: fetch failed" },
+      ],
+    }),
+  },
+  {
+    name: "18-connecting",
+    looking_for: "a stalled connection says what state it is in AND what to check",
+    state: { ...initialState(), conn: "reconnecting", sessionsLoaded: false },
+  },
+  {
+    name: "19-bridge-error",
+    looking_for: "the bridge's actual message, not the word 'error'",
+    state: { ...initialState(), conn: "error: unknown session ch/9f2a", sessionsLoaded: false },
   },
   {
     name: "16-disconnected",

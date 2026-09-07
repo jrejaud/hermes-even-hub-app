@@ -50,7 +50,15 @@ export type HistoryItem =
   | { kind: "tool"; name: string; label?: string; running: boolean; ok?: boolean }
   | { kind: "assistant"; text: string }
   | { kind: "banner"; text: string }
-  | { kind: "ask"; ask: AskKind; text: string; options?: string[]; answered?: boolean };
+  | { kind: "ask"; ask: AskKind; text: string; options?: string[]; answered?: boolean }
+  /**
+   * Something went wrong, shown IN the thread.
+   *
+   * The wearer has no console, no logs and no second screen. An error that only
+   * changes the connection dot is an error nobody can act on — it has to appear
+   * where they are already reading.
+   */
+  | { kind: "error"; text: string };
 
 export type ServerMsg =
   | { t: "hello.ok"; caps: Record<string, unknown>; active: string | null }

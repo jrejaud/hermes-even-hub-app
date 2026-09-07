@@ -23,7 +23,7 @@ describe("listRows", () => {
     };
     expect(listRows(s, now)).toEqual([
       "＋ New session",
-      "● 2h build the app",
+      "▶ 2h build the app",
       "  1d refactor parser",
     ]);
   });
@@ -67,7 +67,7 @@ describe("renderList", () => {
     await renderList(bridge, { ...initialState(), conn: "connected" });
     const arg = bridge.rebuildPageContainer.mock.calls[0][0];
     expect(arg.listObject).toBeUndefined();
-    expect(arg.textObject[0].content).toBe("loading sessions...\nwaiting for session list");
+    expect(arg.textObject[0].content).toContain("Waiting for the session list");
   });
 
   it("renders a native list after sessions hydrate", async () => {
@@ -82,8 +82,24 @@ describe("renderList", () => {
     expect(arg.listObject[0].itemContainer.itemName[0]).toBe("＋ New session");
   });
 
-  it("includes connection status in loading text", () => {
-    expect(loadingText({ ...initialState(), conn: "reconnecting" })).toBe("loading sessions...\nreconnecting");
+  // This is the ONLY screen shown when something is wrong, and the wearer has
+  // no console — so each state has to say what is happening and what to do,
+  // not just "loading".
+  it("names the raw connection state so a stall is diagnosable", () => {
+    const text = loadingText({ ...initialState(), conn: "reconnecting" });
+    expect(text).toContain("reconnecting");
+    expect(text).toContain("off the tailnet");
+  });
+
+  it("tells an unconfigured install where to go", () => {
+    const text = loadingText({ ...initialState(), conn: "not configured" });
+    expect(text).toContain("phone");
+    expect(text).toContain("token");
+  });
+
+  it("surfaces a bridge error's actual message, not just 'error'", () => {
+    const text = loadingText({ ...initialState(), conn: "error: host ov unreachable" });
+    expect(text).toContain("host ov unreachable");
   });
 });
 

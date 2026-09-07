@@ -204,7 +204,7 @@ describe("activity notification", () => {
 
   it("marks unread sessions in the list and counts them in the bar", () => {
     const s = reduce(loaded({ screen: "list" }), act);
-    expect(listRows(s, 1_780_000_000)[2]).toBe("* now ch deploy parakeet");
+    expect(listRows(s, 1_780_000_000)[2]).toBe("● now ch deploy parakeet");
   });
 
   it("clears the unread mark once that session is opened", () => {

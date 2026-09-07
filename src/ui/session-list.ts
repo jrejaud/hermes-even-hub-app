@@ -89,7 +89,12 @@ function formatSessionRow(
   showHost: boolean,
   unread: string[],
 ): string {
-  const marker = item.id === active ? "●" : unread.includes(item.id) ? "*" : " ";
+  // Three states, three shapes rather than three sizes of dot. `●` and `*` were
+  // both small marks in the same column and read as the same thing at a glance
+  // (own review of the state gallery, 2026-09-04). `▶` points at the row you are
+  // in; `●` is a filled blob that carries unseen activity; blank is neither.
+  // All three are in the firmware's safe glyph set.
+  const marker = item.id === active ? "▶" : unread.includes(item.id) ? "●" : " ";
   const hostTag = showHost && item.host ? `${item.host} ` : "";
   const prefix = `${marker} ${compactAge(item.updated, nowSeconds)} ${hostTag}`;
   const title = truncateTitle(

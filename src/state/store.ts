@@ -142,7 +142,17 @@ export function reduce(s: AppState, m: ServerMsg): AppState {
         unread: s.unread.filter((id) => id !== m.id),
       };
     case "error":
-      return { ...s, conn: `error: ${m.msg}` };
+      // Put it ON THE THREAD as well as in the connection state. The wearer has
+      // no console and no second screen; an error that only dims the connection
+      // dot is an error nobody can act on. It also ends the turn — whatever was
+      // running is not coming back, and leaving the bar on "thinking…" is a lie.
+      return {
+        ...s,
+        conn: `error: ${m.msg}`,
+        stream: [...s.stream, { kind: "error", text: m.msg }],
+        turn: "idle",
+        scrollPage: null,
+      };
     case "assistant.delta":
       return { ...s, history: { loadingFor: null, failedFor: null }, stream: appendStream(s.stream, m.text), scrollPage: null };
     case "assistant":

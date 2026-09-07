@@ -65,11 +65,38 @@ export async function renderList(bridge: EvenAppBridge, s: AppState): Promise<vo
   await showListPage(bridge, listRows(s));
 }
 
+/**
+ * The boot / not-yet-connected screen.
+ *
+ * This is the ONLY screen shown when something is wrong, and the wearer has no
+ * console — so it has to say what is happening and what to do about it, not just
+ * "loading". Two lines of status on an otherwise empty 576×288 was wasting the
+ * one surface that could explain a failure.
+ */
 export function loadingText(s: AppState): string {
-  const status = s.conn === "connected"
-    ? "waiting for session list"
-    : s.conn;
-  return `loading sessions...\n${status}`;
+  if (s.conn === "connected") {
+    return ["Connected.", "", "Waiting for the session list…"].join("\n");
+  }
+  if (s.conn === "not configured") {
+    return [
+      "Not configured.",
+      "",
+      "Open the app on your phone and enter",
+      "the bridge address and token.",
+    ].join("\n");
+  }
+  if (s.conn.startsWith("error:")) {
+    return ["Bridge error.", "", ...wrapTextLines(s.conn.slice(6).trim()).slice(0, 5)].join("\n");
+  }
+  // connecting / reconnecting / websocket error
+  return [
+    "Connecting to the bridge…",
+    "",
+    s.conn,
+    "",
+    "If this does not clear, the bridge is",
+    "down or the phone is off the tailnet.",
+  ].join("\n");
 }
 
 /**
