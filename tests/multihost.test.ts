@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/input/dispatch";
 import { initialState, openAsk, reduce, barText, type AppState } from "../src/state/store";
 import { sessionsNew, sessionsSwitch, sessionsList, type HostItem, type SessionItem } from "../src/protocol";
-import { listRows, alertText, buildListView, headerText } from "../src/ui/views";
+import { listRows, alertText, buildListView, headerText, statusBrightness } from "../src/ui/views";
 import { getTextWidth } from "@evenrealities/pretext";
 import { newSessionRows, sessionForListIndex } from "../src/ui/session-list";
-import { byteLength, clampToBudget, threadPages, VIEWPORT_BYTE_BUDGET } from "../src/ui/stream";
+import { byteLength, clampToBudget, threadPages, THREAD_BODY, VIEWPORT_BYTE_BUDGET } from "../src/ui/stream";
+import { BRIGHT, LAYOUT } from "../src/ui/render";
 
 const HOSTS: HostItem[] = [
   { key: "ov", name: "overlord", online: true },
@@ -274,5 +275,70 @@ describe("things the firmware silently drops or clips", () => {
   it("a short title is left intact rather than needlessly truncated", () => {
     expect(headerText("ov", "deploy")).toBe("ov · deploy");
     expect(headerText(undefined, "deploy")).toBe("deploy");
+  });
+});
+
+describe("the layout and the viewport math must agree", () => {
+  // THREAD_BODY.height duplicates LAYOUT.body.h. If they drift, the viewport
+  // computes a line count the container cannot show, and the last line is
+  // clipped with no error anywhere.
+  it("the thread viewport is sized from the real body container", () => {
+    expect(THREAD_BODY.height).toBe(LAYOUT.body.h);
+    expect(THREAD_BODY.padding).toBe(LAYOUT.body.pad);
+    expect(THREAD_BODY.width).toBe(LAYOUT.body.w);
+  });
+
+  it("the containers tile the 288px canvas exactly, with no gap and no overflow", () => {
+    expect(LAYOUT.header.h).toBe(LAYOUT.dot.h);
+    expect(LAYOUT.header.y + LAYOUT.header.h).toBe(LAYOUT.body.y);
+    expect(LAYOUT.body.y + LAYOUT.body.h).toBe(LAYOUT.status.y);
+    expect(LAYOUT.status.y + LAYOUT.status.h).toBe(288);
+  });
+
+  it("the header stops exactly where the connection dot starts", () => {
+    expect(LAYOUT.header.w).toBe(LAYOUT.dot.x);
+    expect(LAYOUT.dot.x + LAYOUT.dot.w).toBe(576);
+  });
+
+  it("every container fits one line of text after padding", () => {
+    for (const c of [LAYOUT.header, LAYOUT.dot, LAYOUT.status]) {
+      expect(c.h - 2 * c.pad).toBeGreaterThanOrEqual(THREAD_BODY.lineHeight);
+    }
+  });
+
+  it("brightness is a real hierarchy, and every level is in the SDK's 0-4 range", () => {
+    // Five brightness levels are the ONLY visual hierarchy this display has:
+    // one font, one weight, no sizes. Flat brightness is why a dense screen
+    // reads as a wall.
+    expect(BRIGHT.body).toBeGreaterThan(BRIGHT.header);
+    expect(BRIGHT.header).toBeGreaterThan(BRIGHT.status);
+    for (const v of Object.values(BRIGHT)) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(4);
+    }
+  });
+});
+
+describe("brightness follows urgency, not the container", () => {
+  // A dim recording indicator is worse than the flat one it replaced. The
+  // status bar is chrome when it reads "ready" and a demand when it reads
+  // "recording" or "tap to answer".
+  it("the status bar burns bright while recording", () => {
+    expect(statusBrightness(loaded({ screen: "session", phase: "recording" }))).toBe(BRIGHT.body);
+  });
+
+  it("and while a transcript is waiting to be sent", () => {
+    expect(statusBrightness(loaded({ screen: "session", phase: "review" }))).toBe(BRIGHT.body);
+  });
+
+  it("and while the agent is blocked on the wearer", () => {
+    const asking = reduce(loaded({ screen: "session" }), {
+      t: "ask", ask: "permission", text: "Allow it? — say yes or no", options: ["allow", "deny"],
+    });
+    expect(statusBrightness(asking)).toBe(BRIGHT.body);
+  });
+
+  it("but recedes when it is only reporting state", () => {
+    expect(statusBrightness(loaded({ screen: "session" }))).toBe(BRIGHT.status);
   });
 });

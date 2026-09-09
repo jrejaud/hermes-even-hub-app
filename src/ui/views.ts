@@ -1,7 +1,7 @@
 import type { EvenAppBridge } from "@evenrealities/even_hub_sdk";
 import type { AppState, StreamItem } from "../state/store";
-import { barText, connDot, isHistoryLoading } from "../state/store";
-import { IDS, setText, showAlertPage, showListPage, showLoadingPage } from "./render";
+import { barText, connDot, isHistoryLoading, openAsk } from "../state/store";
+import { BRIGHT, IDS, setText, showAlertPage, showListPage, showLoadingPage } from "./render";
 import { getTextWidth } from "@evenrealities/pretext";
 import { LOADING_SESSIONS_ROW, newSessionRows, orderedSessions, sessionListRows, truncateTitle } from "./session-list";
 import { clampToBudget, currentThreadViewport, wrapTextLines } from "./stream";
@@ -132,6 +132,19 @@ export function headerText(host: string | undefined, title: string): string {
   return prefix + truncateTitle(title, HEADER_TEXT_WIDTH_PX - getTextWidth(prefix));
 }
 
+/**
+ * The status bar is chrome when it says "ready" and a DEMAND when it says
+ * "recording" or "tap to answer". Brightness has to follow urgency, not the
+ * container it happens to live in — a dim recording indicator is worse than the
+ * flat one it replaced, which is exactly what the state gallery caught on the
+ * first pass at this hierarchy.
+ */
+export function statusBrightness(s: AppState): number {
+  if (s.phase === "recording" || s.phase === "review") return BRIGHT.body;
+  if (openAsk(s)) return BRIGHT.body;
+  return BRIGHT.status;
+}
+
 export async function renderSession(bridge: EvenAppBridge, s: AppState): Promise<void> {
   const active = s.sessions.items.find((i) => i.id === s.sessions.active);
   const title = active && active.title.trim() ? active.title : "Claude Code";
@@ -145,7 +158,7 @@ export async function renderSession(bridge: EvenAppBridge, s: AppState): Promise
       : threadViewportText(s);
   await setText(bridge, IDS.body, body);
 
-  await setText(bridge, IDS.status, statusText(s));
+  await setText(bridge, IDS.status, statusText(s), statusBrightness(s));
 }
 
 function threadViewportText(s: AppState): string {

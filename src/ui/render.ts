@@ -11,15 +11,45 @@ export const NAMES: Record<number, string> = {
   [IDS.list]: "list", [IDS.dot]: "dot",
 };
 
+/**
+ * Brightness is the ONLY visual hierarchy this display has.
+ *
+ * One font, one weight, no sizes, no colour — but `textColor` gives five
+ * brightness levels (SDK 0.0.14+). Without it every glyph on screen carries
+ * equal weight, which is exactly why a dense screen reads as a wall. The thread
+ * is what the wearer is reading, so it burns brightest; the chrome around it
+ * steps down.
+ */
+export const BRIGHT = { body: 4, header: 3, status: 2, dot: 4 } as const;
+
+/**
+ * The vertical budget, spent to the pixel.
+ *
+ * 288 px, a 27 px line pitch, and `paddingLength` is uniform on all four sides.
+ * Header and status each need one line: 27 + 2*2 padding = 31, so 32 each.
+ * That leaves 224 for the thread, which at 4 px padding is 216 inner and
+ * floor(216/27) = **8 lines** — one more than the old 200 px body gave.
+ *
+ * There is deliberately no gap between containers. Containers clip their own
+ * content, so a gap buys nothing but a lost line.
+ */
+export const LAYOUT = {
+  header: { y: 0, h: 32, w: 540, pad: 2 },
+  dot: { y: 0, h: 32, x: 540, w: 36, pad: 2 },
+  body: { y: 32, h: 224, w: 576, pad: 4 },
+  status: { y: 256, h: 32, w: 576, pad: 2 },
+} as const;
+
 // The 4 chat text containers (header, dot, body, status), shared by showSessionPage.
 // createStartUpPageContainer is one-shot, so the startup page is the list;
 // re-entering a session uses rebuildPageContainer with these 4 text containers.
 function chatTextObjects(): TextContainerProperty[] {
+  const L = LAYOUT;
   return [
-    new TextContainerProperty({ containerID: IDS.header, containerName: "header", xPosition: 0,   yPosition: 0,   width: 540, height: 40,  paddingLength: 4, content: "Claude Code" }),
-    new TextContainerProperty({ containerID: IDS.dot,    containerName: "dot",    xPosition: 540, yPosition: 0,   width: 36,  height: 40,  paddingLength: 4, content: "◌" }),
-    new TextContainerProperty({ containerID: IDS.body,   containerName: "body",   xPosition: 0,   yPosition: 44,  width: 576, height: 200, paddingLength: 4, content: "", isEventCapture: 1 }),
-    new TextContainerProperty({ containerID: IDS.status, containerName: "status", xPosition: 0,   yPosition: 248, width: 576, height: 36,  paddingLength: 4, content: "connecting…" }),
+    new TextContainerProperty({ containerID: IDS.header, containerName: "header", xPosition: 0,     yPosition: L.header.y, width: L.header.w, height: L.header.h, paddingLength: L.header.pad, textColor: BRIGHT.header, content: "Claude Code" }),
+    new TextContainerProperty({ containerID: IDS.dot,    containerName: "dot",    xPosition: L.dot.x, yPosition: L.dot.y,   width: L.dot.w,    height: L.dot.h,    paddingLength: L.dot.pad,    textColor: BRIGHT.dot,    content: "◌" }),
+    new TextContainerProperty({ containerID: IDS.body,   containerName: "body",   xPosition: 0,     yPosition: L.body.y,   width: L.body.w,   height: L.body.h,   paddingLength: L.body.pad,   textColor: BRIGHT.body,   content: "", isEventCapture: 1 }),
+    new TextContainerProperty({ containerID: IDS.status, containerName: "status", xPosition: 0,     yPosition: L.status.y, width: L.status.w, height: L.status.h, paddingLength: L.status.pad, textColor: BRIGHT.status, content: "connecting…" }),
   ];
 }
 
@@ -129,12 +159,18 @@ export async function showListPage(bridge: EvenAppBridge, rows: string[]): Promi
   }));
 }
 
-export async function setText(bridge: EvenAppBridge, id: number, content: string): Promise<void> {
+/**
+ * `textColor` is a per-call override, and the SDK keeps the container's current
+ * brightness when it is omitted — so a caller that cares passes one, and a
+ * caller that does not leaves the page's declared level alone.
+ */
+export async function setText(bridge: EvenAppBridge, id: number, content: string, textColor?: number): Promise<void> {
   await bridge.textContainerUpgrade(new TextContainerUpgrade({
     containerID: id,
     containerName: NAMES[id],
     contentOffset: 0,
     contentLength: 0,   // full replacement (glasses-ui requirement)
+    ...(textColor === undefined ? {} : { textColor }),
     content,
   }));
 }

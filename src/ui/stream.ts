@@ -7,7 +7,7 @@ const RULE = "─".repeat(26);
 
 export const THREAD_BODY = {
   width: 576,
-  height: 200,
+  height: 224,   // must track LAYOUT.body.h in ui/render.ts — see the assertion in tests
   padding: 4,
   lineHeight: 27,
   overlapLines: 2,

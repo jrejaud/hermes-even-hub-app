@@ -17,7 +17,7 @@
     "sim:glow": "evenhub-simulator http://localhost:5173 --automation-port 9898 --glow",
     "sim:check": "node scripts/smoke-sim.mjs",
     "qr": "evenhub qr --url http://localhost:5173",
-    "pack": "npm run build:beta && node scripts/check-no-secrets.mjs beta && evenhub pack app.json dist -o claude-code-g2-hub.ehpk",
+    "pack": "npm run build:beta && node scripts/check-no-secrets.mjs beta && evenhub pack app.json dist -o claude-code-g2-hub.ehpk --sdk-ver 0.0.14",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:bridge": "npm --prefix bridge test",
@@ -25,19 +25,19 @@
     "bridge": "npm --prefix bridge start",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "build:beta": "tsc && vite build --mode beta",
-    "pack:release": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o claude-code-g2-hub-release.ehpk",
+    "pack:release": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o claude-code-g2-hub-release.ehpk --sdk-ver 0.0.14",
     "dev:gallery": "VITE_UI_GALLERY=1 vite --host 0.0.0.0",
     "ui:capture": "node scripts/ui-gallery.mjs"
   },
   "devDependencies": {
-    "@evenrealities/evenhub-cli": "^0.1.13",
-    "@evenrealities/evenhub-simulator": "^0.7.3",
+    "@evenrealities/evenhub-cli": "^0.1.14",
+    "@evenrealities/evenhub-simulator": "^0.9.5",
     "typescript": "^5.9.3",
     "vite": "^8.0.12",
     "vitest": "^4.1.7"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.10",
+    "@evenrealities/even_hub_sdk": "^0.0.14",
     "@evenrealities/pretext": "^0.1.4"
   }
 }
