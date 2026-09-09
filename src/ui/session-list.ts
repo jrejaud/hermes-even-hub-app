@@ -4,7 +4,16 @@ import type { HostItem, SessionItem } from "../protocol";
 export const NEW_SESSION_ROW = "＋ New session";
 export const LOADING_SESSIONS_ROW = "loading sessions...";
 
-const LIST_ROW_WIDTH_PX = 576;
+// A list row is NOT the full 576px canvas. The firmware draws each row inside a
+// rounded select border (isItemSelectBorderEn) and reserves a scroll affordance,
+// so the usable text width is inset from the container edge — and unlike a text
+// container there is no row-height control and no way to stop a wrap. A row we
+// budget to the full width therefore measures fine here but wraps to two lines on
+// the device, and the one-line row height shears the tops and bottoms off both
+// lines (Jordan, 2026-09-09: long titles "cutting off the top and the bottom").
+// The simulator renders rows at full width with no border inset, so it never
+// reproduces this — only the glasses do. 512 leaves a 64px (~11%) margin.
+export const LIST_ROW_WIDTH_PX = 512;
 const SESSION_HEADER_WIDTH_PX = 540;
 const MAX_ITEM_CHARS = 64;
 const MAX_ITEM_BYTES = 63;

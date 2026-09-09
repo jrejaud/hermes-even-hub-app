@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { getTextWidth } from "@evenrealities/pretext";
 import { listRows, loadingText, renderList, renderSession } from "../src/ui/views";
 import { initialState, type AppState } from "../src/state/store";
+import { LIST_ROW_WIDTH_PX } from "../src/ui/session-list";
 
 describe("listRows", () => {
   it("shows a non-actionable loading row until sessions hydrate", () => {
@@ -57,7 +58,10 @@ describe("listRows", () => {
     const row = listRows(s, 1)[1];
     expect(row.endsWith("…")).toBe(true);
     expect(row.length).toBeLessThanOrEqual(64);
-    expect(getTextWidth(row)).toBeLessThanOrEqual(576);
+    // Budget to the native row's usable width, NOT the 576px canvas: the firmware
+    // insets each row for the select border and wraps (then shears) anything wider.
+    // Asserting ≤576 is what let the wrapping bug ship (2026-09-09).
+    expect(getTextWidth(row)).toBeLessThanOrEqual(LIST_ROW_WIDTH_PX);
   });
 });
 
