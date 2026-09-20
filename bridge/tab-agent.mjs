@@ -14,6 +14,11 @@
  *   GET  /health                    is it up
  *   GET  /tab?session=<id>          {uuid} of the live tab, or {uuid:null}
  *   POST /send {session, text}      type an utterance into that tab
+ *   POST /answer {session, match, text}
+ *                                   answer the picker ON SCREEN in that tab: `match` is
+ *                                   a literal option-row prefix (answer-prompt.sh refuses
+ *                                   anything not rendered right now); when no picker is
+ *                                   up and `text` is given, it is typed instead (SC-5538)
  *
  * Token-gated and bound to loopback plus one explicit address. It can type
  * arbitrary text into any terminal on this machine, which is as dangerous as it
@@ -37,6 +42,7 @@ const TOKEN =
   (process.env.TAB_AGENT_TOKEN_OP ? (await import("./hosts.mjs")).readOp(process.env.TAB_AGENT_TOKEN_OP) : undefined);
 const REGISTRY = join(homedir(), ".local/state/claude-sessions");
 const SEND = join(homedir(), ".claude/skills/create-tab/scripts/send-to-session.sh");
+const ANSWER = join(homedir(), ".claude/skills/session-notify/scripts/answer-prompt.sh");
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -95,6 +101,26 @@ async function sendToTab(uuid, text) {
   }
 }
 
+/**
+ * Drive the picker that Claude Code itself rendered in the tab. answer-prompt.sh
+ * only ever selects a row that is literally on screen (exit 3 = refused: no
+ * picker, or no such row) — so a spoken answer can never become a prompt unless
+ * the caller explicitly allows the typed fallback via `text`.
+ */
+async function answerInTab(uuid, match, text) {
+  if (match && match.trim()) {
+    const r = await run(ANSWER, ["--uuid", uuid, "--match", match]);
+    if (r.code === 0) return { ok: true, via: "picker", match };
+    if (r.code !== 3) return { ok: false, error: (r.err || r.out).trim().slice(0, 400) };
+    // 3 = refused — fall through to typing, if allowed
+  }
+  if (text && text.trim()) {
+    const r = await sendToTab(uuid, text);
+    return r.ok ? { ok: true, via: "typed" } : r;
+  }
+  return { ok: false, refused: true, error: "no picker row matches and no text to type" };
+}
+
 function send(res, code, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(code, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
@@ -136,6 +162,30 @@ const server = http.createServer((req, res) => {
       const r = await sendToTab(uuid, text);
       log(`[send] ${body.session} -> ${uuid} ${r.ok ? "ok" : `FAILED: ${r.error}`}`);
       return send(res, r.ok ? 200 : 500, r.ok ? { ok: true, uuid } : { error: r.error });
+    });
+    return;
+  }
+
+  if (url.pathname === "/answer" && req.method === "POST") {
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > 200_000) req.destroy();
+    });
+    req.on("end", async () => {
+      let body;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return send(res, 400, { error: "body was not JSON" });
+      }
+      const uuid = resolveTab(String(body.session ?? ""));
+      if (!uuid) return send(res, 404, { error: "no live tab for that session" });
+      const match = body.match == null ? "" : String(body.match);
+      const text = body.text == null ? "" : String(body.text);
+      const r = await answerInTab(uuid, match, text);
+      log(`[answer] ${body.session} -> ${uuid} match=${match.slice(0, 40)} ${r.ok ? `ok via ${r.via}` : `FAILED: ${r.error}`}`);
+      return send(res, r.ok ? 200 : r.refused ? 409 : 500, { ...r, uuid });
     });
     return;
   }
