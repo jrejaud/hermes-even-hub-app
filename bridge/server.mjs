@@ -23,6 +23,7 @@ import { loadHosts, readOp } from "./hosts.mjs";
 import { Fleet, ActivityWatcher } from "./fleet.mjs";
 import { TerminalRouter } from "./terminal.mjs";
 import { SessionPump } from "./pump.mjs";
+import { NotificationFeed } from "./notifications.mjs";
 import { createTranscriber } from "./stt.mjs";
 import { activity as activityFrame, error as errorFrame, helloOk, parseClient, sessions as sessionsFrame, transcript as transcriptFrame } from "./protocol.mjs";
 
@@ -49,6 +50,12 @@ const watcher = new ActivityWatcher(fleet, {
   log,
 });
 const stt = createTranscriber(process.env, { log, hostNames: fleet.hostList().map((h) => h.name) });
+// Flagged-session events for off-terminal clients (the Claude Glasses Android
+// app). One feed, shared by every subscriber; a client opts in at hello.
+const feed = new NotificationFeed(loadHosts(HOSTS_FILE), {
+  intervalMs: Number(process.env.NOTIFY_INTERVAL_MS ?? 5_000),
+  log,
+});
 
 /**
  * Where each host's TERMINALS are, so an utterance about a session you already
@@ -84,6 +91,7 @@ const httpServer = http.createServer((req, res) => {
       hosts: fleet.hostList(),
       stt: stt.engine,
       clients: wss.clients.size,
+      notifications: { hosts: feed.hostList(), subscribed: feed.subs.size, clients: notifClients.size },
     });
     res.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
     res.end(body);
@@ -93,6 +101,12 @@ const httpServer = http.createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer });
+/** Connections that said hello with stream:"notifications" — they get feed frames and nothing else. */
+const notifClients = new Set();
+feed.onEvent((frame) => {
+  const data = JSON.stringify(frame);
+  for (const ws of notifClients) if (ws.readyState === ws.OPEN) ws.send(data);
+});
 
 wss.on("connection", (ws, req) => {
   const peer = req.socket.remoteAddress;
@@ -140,6 +154,15 @@ wss.on("connection", (ws, req) => {
       }
       authed = true;
       clearTimeout(helloTimer);
+      if (m.stream === "notifications") {
+        // A notification-only client: no session pump, no activity frames — just
+        // the flagged-session feed, until it disconnects.
+        notifClients.add(ws);
+        unsubscribe();
+        log(`[ws] ${peer} connected to the notifications stream (device=${m.device ?? "?"})`);
+        emit(helloOk({ hosts: feed.hostList(), stream: "notifications", kinds: ["question", "permission", "notification", "finished"] }, null));
+        return;
+      }
       log(`[ws] ${peer} connected (device=${m.device ?? "?"})`);
       emit(helloOk({ hosts: fleet.hostList(), stt: stt.engine, multiHost: true, ask: true, activity: true }, null));
       return;
@@ -201,6 +224,7 @@ wss.on("connection", (ws, req) => {
 
   ws.on("close", () => {
     clearTimeout(helloTimer);
+    notifClients.delete(ws);
     unsubscribe();
     pump.detach();
     log(`[ws] ${peer} disconnected`);
@@ -209,6 +233,7 @@ wss.on("connection", (ws, req) => {
 });
 
 watcher.start();
+feed.start();
 
 httpServer.listen(PORT, BIND, () => {
   log(`claude-code-g2-bridge on ws://${BIND}:${PORT}`);
@@ -220,6 +245,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
     log(`shutting down on ${sig}`);
     watcher.stop();
+    feed.stop();
     wss.close();
     httpServer.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2_000).unref();

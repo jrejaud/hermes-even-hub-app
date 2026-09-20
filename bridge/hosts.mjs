@@ -60,6 +60,15 @@ export function loadHosts(path, env = process.env) {
       tabAgentTokenEnv: h.tabAgentTokenEnv,
       tabAgentTokenOp: h.tabAgentTokenOp,
       tabAgentToken: h.tabAgentToken,
+      // The FLAGGED even-terminal instance on this host (SC-5538): its
+      // /api/sessions lists only glasses_visible sessions, and is what the
+      // notifications stream subscribes to. Defaults to the main url/token when
+      // the main instance IS the flagged one (Overlord). Chiba's main instance
+      // is glasses-origin-only, so it names :3459 explicitly.
+      flaggedUrl: h.flaggedUrl ?? h.url,
+      flaggedToken: h.flaggedUrl
+        ? (h.flaggedTokenEnv && env[h.flaggedTokenEnv]) || (h.flaggedTokenOp ? readOp(h.flaggedTokenOp) : h.flaggedToken)
+        : resolveToken(h, env),
     };
   });
 }

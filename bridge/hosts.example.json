@@ -21,7 +21,10 @@
       "key": "ch",
       "name": "chiba",
       "url": "http://127.0.0.1:3457",
-      "tokenEnv": "EVEN_TERMINAL_TOKEN_CH"
+      "tokenEnv": "EVEN_TERMINAL_TOKEN_CH",
+      "flaggedUrl": "http://127.0.0.1:3459",
+      "flaggedTokenEnv": "EVEN_TERMINAL_TOKEN_CH_FLAGGED",
+      "_flagged": "SC-5538: the host's FLAGGED even-terminal (lists glasses_visible sessions) — the notifications stream subscribes here. Omit when the main instance is already the flagged one."
     }
   ]
 }

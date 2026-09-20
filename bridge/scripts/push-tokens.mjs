@@ -56,6 +56,8 @@ const hosts = JSON.parse(readFileSync(join(ROOT, "hosts.json"), "utf8")).hosts ?
 for (const h of hosts) {
   if (!h.tokenOp) continue;
   lines.push(`EVEN_TERMINAL_TOKEN_${h.key.toUpperCase()}=${readOp(h.tokenOp)}`);
+  // The flagged even-terminal instance on that host, when it is a separate unit (SC-5538).
+  if (h.flaggedTokenOp) lines.push(`EVEN_TERMINAL_TOKEN_${h.key.toUpperCase()}_FLAGGED=${readOp(h.flaggedTokenOp)}`);
 }
 
 if (!lines.length) {

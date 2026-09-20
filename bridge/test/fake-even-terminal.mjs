@@ -15,6 +15,8 @@ export async function startFakeEvenTerminal({ token = "t0k", name = "fake" } = {
   const sessions = new Map();
   const calls = [];
   let counter = 0;
+  /** @type {Map<string, Set<import("node:http").ServerResponse>>} */
+  const sseClients = new Map();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
@@ -90,6 +92,22 @@ export async function startFakeEvenTerminal({ token = "t0k", name = "fake" } = {
     }
 
     if (url.pathname === "/api/interrupt") return json(res, 200, { ok: true });
+
+    // SSE, as dist/routes/events.js does it: ":ok", then "id: N\ndata: {...}\n\n"
+    // per pushed message. The notifications feed (SC-5538) subscribes here.
+    if (url.pathname === "/api/events") {
+      const id = url.searchParams.get("sessionId");
+      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+      res.write(":ok\n\n");
+      const set = sseClients.get(id) ?? new Set();
+      set.add(res);
+      sseClients.set(id, set);
+      if (url.searchParams.get("needReplay") === "true") {
+        for (const m of sessions.get(id)?.messages ?? []) res.write(`id: ${m.id}\ndata: ${JSON.stringify(m)}\n\n`);
+      }
+      req.on("close", () => set.delete(res));
+      return;
+    }
     return json(res, 404, { error: "not found" });
   });
 
@@ -111,7 +129,11 @@ export async function startFakeEvenTerminal({ token = "t0k", name = "fake" } = {
     push(id, ...messages) {
       const s = sessions.get(id);
       if (!s) throw new Error(`no such fake session ${id}`);
-      for (const m of messages) s.messages.push({ id: ++s.nextId, ...m });
+      for (const m of messages) {
+        const entry = { id: ++s.nextId, ...m };
+        s.messages.push(entry);
+        for (const res of sseClients.get(id) ?? []) res.write(`id: ${entry.id}\ndata: ${JSON.stringify(m)}\n\n`);
+      }
       s.timestamp = new Date().toISOString();
       if (messages.some((m) => m.type === "result")) {
         s.state = "idle";
@@ -124,6 +146,8 @@ export async function startFakeEvenTerminal({ token = "t0k", name = "fake" } = {
       sessions.get(id).state = state;
     },
     async close() {
+      for (const set of sseClients.values()) for (const res of set) res.end();
+      server.closeAllConnections?.();
       await new Promise((r) => server.close(r));
     },
   };
