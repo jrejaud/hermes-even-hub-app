@@ -57,6 +57,8 @@ for (const h of hosts) {
   if (!h.tokenOp) continue;
   lines.push(`EVEN_TERMINAL_TOKEN_${h.key.toUpperCase()}=${readOp(h.tokenOp)}`);
   // The flagged even-terminal instance on that host, when it is a separate unit (SC-5538).
+  // The tab agent on that host, named the way hosts.mjs/server.mjs look it up (tabAgentTokenEnv).
+  if (h.tabAgentTokenOp) lines.push(`TAB_AGENT_TOKEN_${h.key.toUpperCase()}=${readOp(h.tabAgentTokenOp)}`);
   if (h.flaggedTokenOp) lines.push(`EVEN_TERMINAL_TOKEN_${h.key.toUpperCase()}_FLAGGED=${readOp(h.flaggedTokenOp)}`);
 }
 
