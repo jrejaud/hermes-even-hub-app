@@ -46,6 +46,8 @@ export class NotificationFeed {
     this.subs = new Map();
     this.timer = undefined;
     this.seq = 0;
+    /** Set after the first reconcile: sessions appearing later are NEW, not history. */
+    this.primed = false;
   }
 
   onEvent(fn) {
@@ -95,7 +97,13 @@ export class NotificationFeed {
         const busy = s.status === "busy";
         let st = this.subs.get(id);
         if (!st) {
-          st = { abort: new AbortController(), lastId: 0, title: (s.title ?? "").trim(), busy, updated, primed: false };
+          // A session that appears AFTER the first reconcile is brand new, and its
+          // first prompt/question can land before this tick even saw it (measured
+          // 2026-09-20: question at :54, SSE attached at :59). Ask even-terminal to
+          // replay its ring buffer on the first connect; the buffer of a
+          // seconds-old session holds only that turn. Sessions present at start
+          // are history and get no replay — that would flood the HUD.
+          st = { abort: new AbortController(), lastId: 0, title: (s.title ?? "").trim(), busy, updated, primed: false, replay: this.primed };
           this.subs.set(id, st);
           void this.subscribe(h, s.id, st);
         } else {
@@ -110,6 +118,7 @@ export class NotificationFeed {
         st.primed = true;
       }
     }
+    this.primed = true;
     // A session that dropped off every flagged list (unflagged, pruned, archived) — stop listening.
     for (const [id, st] of this.subs) {
       if (!live.has(id)) {
@@ -126,6 +135,10 @@ export class NotificationFeed {
       try {
         const url = new URL(`${host.url}/api/events`);
         url.searchParams.set("sessionId", sessionId);
+        if (st.replay) {
+          url.searchParams.set("needReplay", "true");
+          st.replay = false; // first connect only; lastId dedups any later reconnect
+        }
         const res = await fetch(url, { headers: { Authorization: `Bearer ${host.token}` }, signal: st.abort.signal });
         if (!res.ok || !res.body) throw new Error(`events ${res.status}`);
         backoff = 2_000;

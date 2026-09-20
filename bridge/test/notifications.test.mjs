@@ -87,3 +87,27 @@ test("a host with no flagged instance configured contributes nothing and does no
   feed.start(); // no-op
   feed.stop();
 });
+
+test("a session that appears after startup replays what landed before the subscription (question ahead of the tick)", async () => {
+  const flagged = await startFakeEvenTerminal({ token: "flag", name: "chiba-flagged" });
+  try {
+    flagged.seed("s-old", { title: "already there", state: "idle" });
+    flagged.push("s-old", { type: "user_question", questions: [{ question: "stale?" }] });
+    const feed = new NotificationFeed([{ key: "ch", name: "chiba", flaggedUrl: flagged.url, flaggedToken: "flag" }], { intervalMs: 100, log: () => {} });
+    const got = [];
+    feed.onEvent((f) => got.push(f));
+    feed.start();
+    await waitFor(() => feed.primed && feed.subs.has("ch/s-old"));
+    await sleep(150);
+    assert.equal(got.length, 0, "history present at startup is never replayed");
+
+    // New session: its question lands BEFORE the next reconcile sees it.
+    flagged.seed("s-new", { title: "fresh", state: "busy" });
+    flagged.push("s-new", { type: "user_question", questions: [{ question: "early bird?" }] });
+    await waitFor(() => got.some((g) => g.text === "early bird?"));
+    assert.equal(got.filter((g) => g.text === "early bird?").length, 1);
+    feed.stop();
+  } finally {
+    await flagged.close();
+  }
+});

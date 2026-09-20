@@ -76,6 +76,7 @@ function show(m) {
     case "active": console.log(`[active ${m.id}]`); break;
     case "transcript": console.log(`[transcript] ${m.text ? `"${m.text}"` : "(nothing heard)"}`); break;
     case "error": console.log(`[error] ${m.msg}`); break;
+    case "notification": console.log(`\n🔔 [${m.kind}] ${m.hostName ?? m.host}/${String(m.sessionId).slice(0, 8)} ${m.title ? `«${m.title}» ` : ""}${m.text}${m.options?.length ? `   options=${m.options.join("|")}` : ""}`); break;
     default: break;
   }
 }
@@ -85,13 +86,13 @@ async function health() {
   console.log(JSON.stringify(await res.json(), null, 2));
 }
 
-function connect(onOpen, { until } = {}) {
+function connect(onOpen, { until, stream } = {}) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(URL_);
     const send = (o) => ws.send(JSON.stringify(o));
     const timer = setTimeout(() => { ws.close(); resolve(); }, SECONDS * 1000);
 
-    ws.on("open", () => send({ t: "hello", token: TOKEN, device: "cli" }));
+    ws.on("open", () => send({ t: "hello", token: TOKEN, device: "cli", ...(stream ? { stream } : {}) }));
     ws.on("message", (raw) => {
       const m = JSON.parse(raw.toString());
       if (m.t === "hello.ok") return void onOpen(send, ws);
@@ -114,6 +115,16 @@ switch (verb) {
 
   case "sessions":
     await connect((send) => send({ t: "sessions.list" }), { until: (m) => m.t === "sessions" });
+    break;
+
+  case "notifications":
+    // The off-terminal stream (SC-5538): flagged-session events only, every host.
+    // What the Claude Glasses Android app subscribes to. Prints frames for
+    // --seconds (default 60), or until --count N frames have arrived.
+    await connect(() => console.log("[notifications] subscribed"), {
+      stream: "notifications",
+      until: (() => { let n = 0; const max = Number(flag("count", 0)); return (m) => m.t === "notification" && max > 0 && ++n >= max; })(),
+    });
     break;
 
   case "open":
@@ -260,6 +271,6 @@ switch (verb) {
     break;
 
   default:
-    console.log(`usage: g2-bridge {health|sessions|open <id>|say <id> <text>|new <host> <text>|watch} [--seconds N]`);
+    console.log(`usage: g2-bridge {health|sessions|open <id>|say <id> <text>|new <host> <text>|watch|notifications [--count N]} [--seconds N]`);
     process.exit(verb ? 1 : 0);
 }
