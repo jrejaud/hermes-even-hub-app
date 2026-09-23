@@ -281,6 +281,12 @@ wss.on("connection", (ws, req) => {
 
   async function handle(m) {
     switch (m.t) {
+      case "fcm.token": {
+        // Idempotent: the app re-sends on every start and on rotation.
+        const t = String(m.token ?? "").trim();
+        if (t.length >= 60) saveFcmToken(t, String(m.package ?? "unknown"));
+        return;
+      }
       case "sessions.list": {
         const items = await fleet.sessions({ force: true });
         emit(sessionsFrame(items, pump.compositeId, fleet.hostList()));

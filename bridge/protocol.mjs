@@ -15,6 +15,12 @@ export const CLIENT_TYPES = new Set([
   "stop",
   "audio.start",
   "audio.stop",
+  // The phone hands over its FCM device token on the socket it is already
+  // authenticated on (SC-5668). An HTTP POST cannot be used from the phone: it
+  // resolves the bridge hostname to Tailscale's PUBLIC Funnel ingress, which does
+  // not forward a tailnet-only serve (measured 2026-09-23 — "failed to connect to
+  // chiba.tailb04065.ts.net/103.84.155.153").
+  "fcm.token",
 ]);
 
 export const helloOk = (caps, active) => ({ t: "hello.ok", caps, active });
