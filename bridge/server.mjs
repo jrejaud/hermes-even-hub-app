@@ -256,11 +256,12 @@ async function fcmSend(frame) {
       const body = {
         message: {
           token: row.token,
-          android: { priority: "HIGH", notification: { channel_id: frame.kind ?? "notification" } },
-          notification: {
-            title: `${frame.hostName ?? frame.host ?? "?"}${frame.title ? " · " + frame.title : ""}`,
-            body: String(frame.text ?? "").slice(0, 400),
-          },
+          // DATA-ONLY, deliberately. A message carrying a `notification` block is
+          // auto-displayed by the Firebase SDK whenever the app is backgrounded, which
+          // bypasses our own post() — and with it the per-kind channel, the glasses
+          // icon and the EVENT log line (observed 2026-09-23: tag=FCM-Notification,
+          // default channel). Data-only always routes through onMessageReceived.
+          android: { priority: "HIGH" },
           // The same fields the WebSocket frame carries, so the app's two paths
           // post identical notifications.
           data: Object.fromEntries(
