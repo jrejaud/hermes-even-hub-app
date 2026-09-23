@@ -17,6 +17,7 @@
  */
 
 import http from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
 import { WebSocketServer } from "ws";
 
 import { loadHosts, readOp } from "./hosts.mjs";
@@ -84,10 +85,71 @@ function resolveTabAgentToken(h) {
   return h.tabAgentToken ?? "";
 }
 
+/**
+ * FCM device tokens, on disk next to the bridge (SC-5668).
+ * A file rather than memory because the whole point of FCM is that delivery survives
+ * things being restarted — including this process. Keyed by token, so a phone that
+ * re-registers the same token does not accumulate duplicates, and a rotated token
+ * simply adds a row (stale ones are dropped when FCM reports UNREGISTERED).
+ */
+const FCM_STORE = new URL("./fcm-tokens.json", import.meta.url).pathname;
+function fcmTokens() {
+  try {
+    return JSON.parse(readFileSync(FCM_STORE, "utf8"));
+  } catch {
+    return [];
+  }
+}
+function saveFcmToken(token, pkg) {
+  const rows = fcmTokens().filter((r) => r.token !== token);
+  rows.push({ token, package: pkg, seen: new Date().toISOString() });
+  writeFileSync(FCM_STORE, JSON.stringify(rows, null, 2));
+  log(`[fcm] token registered for ${pkg} (${rows.length} total)`);
+}
+
 const httpServer = http.createServer((req, res) => {
   // POST /push — put an arbitrary line on the glasses (SC-5669). Same bearer token
   // as the WebSocket; the frame fans out to every notifications subscriber, i.e. the
   // "Glasses Notifications" Android app, which the Even app mirrors onto the HUD.
+  // POST /fcm-token — the Glasses Notifications app registers its FCM device token
+  // here (SC-5668). The token identifies one install, rotates on reinstall/data-clear,
+  // and is useless to the sender until it is stored; the app re-posts it on every
+  // start and on every rotation, so this is idempotent by design.
+  if (req.url?.startsWith("/fcm-token") && req.method === "POST") {
+    const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (bearer !== TOKEN) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > 20_000) req.destroy();
+    });
+    req.on("end", () => {
+      let body;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "body was not JSON" }));
+        return;
+      }
+      const t = String(body.token ?? "").trim();
+      if (t.length < 60) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "that does not look like an FCM token" }));
+        return;
+      }
+      saveFcmToken(t, String(body.package ?? "unknown"));
+      const out = JSON.stringify({ ok: true, tokens: fcmTokens().length });
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(out) });
+      res.end(out);
+    });
+    return;
+  }
+
   if (req.url?.startsWith("/push") && req.method === "POST") {
     const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
     if (bearer !== TOKEN) {

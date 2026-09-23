@@ -23,3 +23,4 @@ bridge/.env
 docs/ui/*.png
 
 bridge/.env.tab-agent
+fcm-tokens.json
