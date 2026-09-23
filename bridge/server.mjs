@@ -85,6 +85,43 @@ function resolveTabAgentToken(h) {
 }
 
 const httpServer = http.createServer((req, res) => {
+  // POST /push — put an arbitrary line on the glasses (SC-5669). Same bearer token
+  // as the WebSocket; the frame fans out to every notifications subscriber, i.e. the
+  // "Glasses Notifications" Android app, which the Even app mirrors onto the HUD.
+  if (req.url?.startsWith("/push") && req.method === "POST") {
+    const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (bearer !== TOKEN) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > 100_000) req.destroy();
+    });
+    req.on("end", () => {
+      let body;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "body was not JSON" }));
+        return;
+      }
+      if (!String(body.text ?? "").trim() && !String(body.title ?? "").trim()) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "need a title or text" }));
+        return;
+      }
+      feed.publish(body);
+      const out = JSON.stringify({ ok: true, delivered_to: notifClients.size });
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(out) });
+      res.end(out);
+    });
+    return;
+  }
+
   if (req.url?.startsWith("/health")) {
     const body = JSON.stringify({
       ok: true,

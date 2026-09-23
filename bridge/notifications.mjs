@@ -73,6 +73,27 @@ export class NotificationFeed {
     this.subs.clear();
   }
 
+  /**
+   * Publish an event that did NOT come from a Claude session (SC-5669).
+   * The app on the glasses is a general "put this on my lens" surface, not a
+   * Claude-only mirror, so anything — a Daemon card, a deploy script, a monitor —
+   * can reach it. Same frame shape and the same per-kind Android channels, so the
+   * phone needs no change and the Even allow-list stays a single switch.
+   */
+  publish({ title = "", text = "", kind = "notification", host = "local", hostName, options }) {
+    const k = ["question", "permission", "notification", "finished"].includes(kind) ? kind : "notification";
+    this.emit({
+      kind: k,
+      host,
+      hostName: hostName || host,
+      sessionId: "external",
+      title: String(title).slice(0, 200),
+      text: String(text).slice(0, 1200),
+      ...(Array.isArray(options) && options.length ? { options: options.map(String).slice(0, 6) } : {}),
+      external: true,
+    });
+  }
+
   emit(ev) {
     const frame = { t: "notification", id: `n${++this.seq}`, ts: this.now(), ...ev };
     this.log(`[notif] ${frame.kind} ${frame.host}/${frame.sessionId.slice(0, 8)} ${String(frame.text ?? "").slice(0, 80)}`);
