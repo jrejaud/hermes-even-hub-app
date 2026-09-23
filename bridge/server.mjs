@@ -202,7 +202,99 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 /** Connections that said hello with stream:"notifications" — they get feed frames and nothing else. */
 const notifClients = new Set();
+/**
+ * FCM delivery (SC-5668). Every frame goes out BOTH ways for now:
+ *   - down the WebSocket, to whatever is currently connected (instant, and the
+ *     only path that works on a device with no Play Services);
+ *   - through FCM, which reaches the phone when its process is dead or dozing —
+ *     the case the socket structurally cannot cover.
+ * The app de-duplicates on its own log; dropping the socket is a later step, once
+ * FCM has been trusted for a while. Sending is best-effort: a push failure must
+ * never break the socket fan-out, so every error is swallowed after one log line.
+ */
+const FCM_KEY = process.env.FCM_KEY_FILE ?? new URL("./fcm-sender-key.json", import.meta.url).pathname;
+const FCM_PROJECT = process.env.FCM_PROJECT ?? "glasses-notify-260923";
+let fcmToken = { value: null, exp: 0 };
+
+async function fcmAccessToken() {
+  if (fcmToken.value && Date.now() < fcmToken.exp - 60_000) return fcmToken.value;
+  const key = JSON.parse(readFileSync(FCM_KEY, "utf8"));
+  const { createSign } = await import("node:crypto");
+  const b64 = (o) => Buffer.from(typeof o === "string" ? o : JSON.stringify(o)).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
+    iss: key.client_email,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  })}`;
+  const sig = createSign("RSA-SHA256").update(unsigned).sign(key.private_key, "base64url");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${sig}` }),
+  });
+  const j = await r.json();
+  if (!j.access_token) throw new Error(`token exchange ${r.status}`);
+  fcmToken = { value: j.access_token, exp: Date.now() + (j.expires_in ?? 3600) * 1000 };
+  return fcmToken.value;
+}
+
+async function fcmSend(frame) {
+  const rows = fcmTokens();
+  if (!rows.length) return;
+  let at;
+  try {
+    at = await fcmAccessToken();
+  } catch (err) {
+    log(`[fcm] no access token: ${err.message}`);
+    return;
+  }
+  for (const row of rows) {
+    try {
+      const body = {
+        message: {
+          token: row.token,
+          android: { priority: "HIGH", notification: { channel_id: frame.kind ?? "notification" } },
+          notification: {
+            title: `${frame.hostName ?? frame.host ?? "?"}${frame.title ? " · " + frame.title : ""}`,
+            body: String(frame.text ?? "").slice(0, 400),
+          },
+          // The same fields the WebSocket frame carries, so the app's two paths
+          // post identical notifications.
+          data: Object.fromEntries(
+            Object.entries({
+              kind: frame.kind, host: frame.host, hostName: frame.hostName,
+              sessionId: frame.sessionId, title: frame.title, text: frame.text,
+              options: Array.isArray(frame.options) ? frame.options.join("|") : "",
+            }).map(([k, v]) => [k, String(v ?? "")]),
+          ),
+        },
+      };
+      const r = await fetch(`https://fcm.googleapis.com/v1/projects/${FCM_PROJECT}/messages:send`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${at}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (r.status === 404 || r.status === 400) {
+        // UNREGISTERED / invalid: the install is gone or the token rotated. Drop it
+        // rather than retrying forever on a dead phone.
+        const remaining = fcmTokens().filter((x) => x.token !== row.token);
+        writeFileSync(FCM_STORE, JSON.stringify(remaining, null, 2));
+        log(`[fcm] dropped a stale token (HTTP ${r.status}); ${remaining.length} left`);
+      } else if (!r.ok) {
+        log(`[fcm] send failed HTTP ${r.status}`);
+      }
+    } catch (err) {
+      log(`[fcm] send error: ${err.message}`);
+    }
+  }
+}
+
 feed.onEvent((frame) => {
+  void fcmSend(frame);
   const data = JSON.stringify(frame);
   for (const ws of notifClients) if (ws.readyState === ws.OPEN) ws.send(data);
 });
