@@ -268,6 +268,7 @@ async function fcmSend(frame) {
             Object.entries({
               kind: frame.kind, host: frame.host, hostName: frame.hostName,
               sessionId: frame.sessionId, title: frame.title, text: frame.text,
+              origin: frame.origin, // SC-6651: ring | glasses | manual — the phone keeps ring off the lens
               options: Array.isArray(frame.options) ? frame.options.join("|") : "",
             }).map(([k, v]) => [k, String(v ?? "")]),
           ),
