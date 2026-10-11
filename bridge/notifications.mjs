@@ -131,7 +131,7 @@ export class NotificationFeed {
           st.title = (s.title ?? "").trim() || st.title;
           // Came to rest after working: "finished". First sight never counts.
           if (st.primed && st.busy && !busy) {
-            this.emit({ kind: "finished", host: h.key, hostName: h.name, sessionId: s.id, title: st.title, text: `${st.title || "session"} finished` });
+            this.emit({ kind: "finished", host: h.key, hostName: h.name, sessionId: s.id, title: st.title, origin: st.origin ?? null, text: `${st.title || "session"} finished` });
           }
           st.busy = busy;
           st.updated = updated;
@@ -207,7 +207,11 @@ export class NotificationFeed {
       return;
     }
     if (!FORWARD.has(msg.type)) return;
-    const base = { host: host.key, hostName: host.name, sessionId, title: st.title };
+    // SC-6651: who flagged the session (ring | glasses | manual), stamped by glasses-notify
+    // on a tab's or Aristo session's event. The phone keeps ring-origin events off the
+    // lens and still forwards them to the watch. Remembered for the session's "finished".
+    if (msg.origin) st.origin = msg.origin;
+    const base = { host: host.key, hostName: host.name, sessionId, title: st.title, origin: st.origin ?? null };
     if (msg.type === "user_question") {
       const q = msg.questions?.[0] ?? {};
       const options = (q.options ?? []).map((o) => o.label).filter(Boolean);

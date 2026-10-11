@@ -45,7 +45,7 @@ test("feed forwards question/permission/notification from flagged sessions only,
       { type: "user_question", toolUseId: "t1", questions: [{ question: "Tea or coffee?", header: "Drink", options: [{ label: "Tea" }, { label: "Coffee" }] }] },
       { type: "permission_request", toolName: "Bash", description: "Bash Check Beeper auth", detail: "beeper auth status", options: [{ text: "Yes" }, { text: "No" }] },
       { type: "notification", title: "API Retry", message: "Retrying (1/3)..." },
-      { type: "notification", title: "Notice", message: "hello lens" },
+      { type: "notification", title: "Notice", message: "hello lens", origin: "ring" },
       { type: "status", state: "text_start" },
     );
     await waitFor(() => got.length >= 3);
@@ -56,6 +56,8 @@ test("feed forwards question/permission/notification from flagged sessions only,
     assert.equal(got[0].sessionId, "s-flag");
     assert.match(got[1].text, /^Bash: Bash Check Beeper auth — beeper auth status$/);
     assert.equal(got[2].text, "Notice: hello lens");
+    assert.equal(got[0].origin, null, "no origin on the frame → null");
+    assert.equal(got[2].origin, "ring", "SC-6651: the frame's origin rides along");
     assert.ok(got.every((g) => typeof g.id === "string" && g.t === "notification"));
 
     // Replay of already-seen ids (what a reconnect with needReplay would send) is dropped.
@@ -70,6 +72,7 @@ test("feed forwards question/permission/notification from flagged sessions only,
     await waitFor(() => got.some((g) => g.kind === "finished"));
     await sleep(300);
     assert.equal(got.filter((g) => g.kind === "finished").length, 1);
+    assert.equal(got.find((g) => g.kind === "finished").origin, "ring", "finished carries the session's remembered origin");
 
     // A session that drops off the flagged list is unsubscribed.
     flagged.sessions.delete("s-flag");
