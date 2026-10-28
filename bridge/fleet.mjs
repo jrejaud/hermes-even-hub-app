@@ -128,9 +128,18 @@ export class ActivityWatcher {
 
   start() {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.tick().catch((e) => this.log(`[watch] ${e.message}`)), this.intervalMs);
+    this.timer = setInterval(() => this.poll(), this.intervalMs);
     if (this.timer.unref) this.timer.unref();
-    void this.tick().catch(() => {});
+    this.poll();
+  }
+
+  /** One tick at a time: a slow host must not stack polls into its backlog (SC-8063). */
+  poll() {
+    if (this.ticking) return;
+    this.ticking = true;
+    void this.tick()
+      .catch((e) => this.log(`[watch] ${e.message}`))
+      .finally(() => (this.ticking = false));
   }
 
   stop() {
