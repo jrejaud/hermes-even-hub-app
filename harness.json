@@ -34,7 +34,8 @@
   },
   "coverage": {
     "lcov": "coverage/lcov.info",
-    "diffMin": 80
+    "diffMin": 80,
+    "include": ["src/lens/**", "src/gateway/client.ts", "src/util/**"]
   },
   "routes": {
     "source": "auto",
