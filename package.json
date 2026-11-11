@@ -27,12 +27,24 @@
     "build:beta": "tsc && vite build --mode beta",
     "pack:release": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o claude-code-g2-hub-release.ehpk --sdk-ver 0.0.14",
     "dev:gallery": "VITE_UI_GALLERY=1 vite --host 0.0.0.0",
-    "ui:capture": "node scripts/ui-gallery.mjs"
+    "ui:capture": "node scripts/ui-gallery.mjs",
+    "check:fast": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/harness/tsbuildinfo && vitest run --changed ${HARNESS_BASE:-HEAD} --passWithNoTests",
+    "check:full": "tsc --noEmit && eslint . --max-warnings=0 && vitest run --coverage --passWithNoTests",
+    "check:ui": "harness gate routes --write && playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@eslint/js": "^10.0.1",
     "@evenrealities/evenhub-cli": "^0.1.14",
     "@evenrealities/evenhub-simulator": "^0.9.5",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^4.1.12",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2",
     "vite": "^8.0.12",
     "vitest": "^4.1.7"
   },

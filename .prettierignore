@@ -1,0 +1,8 @@
+# harness (generated files are drift-checked; never reformat them)
+lefthook.yml
+harness.json
+.harness/
+.github/workflows/harness.yml
+coverage/
+playwright-report/
+test-results/
