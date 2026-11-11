@@ -8,7 +8,7 @@
 import { GLASSES_PATH, type GlassesClientFrame, type GlassesServerFrame } from './glasses';
 
 export interface GatewayProfile {
-  /** Base URL of the views home, e.g. `wss://chiba.tailb04065.ts.net:8445` or `ws://100.125.159.91:8446`. */
+  /** Base URL of the views home, e.g. `wss://agent.alastor.space`. */
   url: string;
   token: string;
 }

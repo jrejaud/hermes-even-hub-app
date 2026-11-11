@@ -35,7 +35,7 @@ export function renderPhone(root: HTMLElement, v: PhoneView, onSave: (p: Gateway
   );
 
   const form = el('form', 'setup-form');
-  const url = input('url', 'url', v.profile?.url ?? '', 'wss://chiba.tailb04065.ts.net:8445');
+  const url = input('url', 'url', v.profile?.url ?? '', 'wss://agent.alastor.space');
   const token = input('password', 'token', v.profile?.token ?? '', 'Gateway token');
   const save = document.createElement('button');
   save.type = 'submit';
