@@ -17,7 +17,7 @@
     "sim:glow": "evenhub-simulator http://localhost:5173 --automation-port 9898 --glow",
     "sim:check": "node scripts/smoke-sim.mjs",
     "qr": "evenhub qr --url http://localhost:5173",
-    "pack": "npm run build:beta && node scripts/check-no-secrets.mjs beta && evenhub pack app.json dist -o claude-code-g2-hub.ehpk --sdk-ver 0.0.14",
+    "pack": "npm run build && node scripts/check-no-secrets.mjs release && evenhub pack app.json dist -o aristo-lens.ehpk --sdk-ver 0.0.14",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:bridge": "npm --prefix bridge test",
