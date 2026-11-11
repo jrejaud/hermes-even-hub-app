@@ -203,3 +203,34 @@ describe('resume', () => {
     });
   });
 });
+
+describe('a dictated answer gets its reply (review finding, SC-9500)', () => {
+  const sendDictatedAnswer = () => {
+    const hold = gesture(open(1), 'hold', T);
+    const rel = gesture(hold.state, 'release', T);
+    const sttId = Object.keys(rel.pending)[0];
+    const confirm = reply(
+      rel.state,
+      rel.pending[sttId],
+      { t: 'ok', reqId: sttId, text: 'no, use the staging host' },
+      T,
+    ).state;
+    const send = gesture(confirm, 'tap', T);
+    const reqId = Object.keys(send.pending)[0];
+    expect(top(send.state)).toMatchObject({ kind: 'dictate', phase: 'sending' });
+    return { s: send.state, reqId, pending: send.pending[reqId] };
+  };
+
+  it('ok closes the confirm screen and returns to the session', () => {
+    const { s, reqId, pending } = sendDictatedAnswer();
+    const r = reply(s, pending, { t: 'ok', reqId }, T);
+    expect(top(r.state)).toMatchObject({ kind: 'session', key: 'chiba/deploy' });
+  });
+
+  it('refused moves to failed with the reason, and the ask comes back', () => {
+    const { s, reqId, pending } = sendDictatedAnswer();
+    const r = reply(s, pending, { t: 'refused', reqId, reason: 'gone', message: '' }, T);
+    expect(top(r.state)).toMatchObject({ kind: 'dictate', phase: 'failed', error: 'already answered' });
+    expect(r.state.answered).not.toContain('p-deploy');
+  });
+});

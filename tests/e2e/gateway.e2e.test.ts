@@ -161,6 +161,11 @@ describe.skipIf(!URL_ || !ADMIN)('Aristo Lens against a live glasses gateway', (
     tap(); // Send
     const hit = await waitLog(t.ask!.promptId, (l) => l.op === 'prompt.answer' && l.args.promptId === t.ask!.promptId);
     expect(JSON.stringify(hit.args)).toContain('dictated text');
+    // …and the lens leaves the confirm screen (the review caught it stuck on "sending…" forever).
+    await until(
+      'the confirm screen to close',
+      () => texts.length > 0 && !texts.slice(-8).some((t) => t.includes('sending…')),
+    );
   });
 
   it('a banner appears when another session starts asking', async () => {

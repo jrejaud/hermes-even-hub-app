@@ -311,17 +311,20 @@ export function reply(
       : { ...sc, phase: 'empty', text: '', error: null };
     return { state: resetCursor(replaceTop(s, next), next), effects: [] };
   }
+  // A refused answer un-hides its ask, wherever it was sent from. `gone` = answered elsewhere, common and fine.
+  const base =
+    pending.kind === 'answer' && f.t === 'refused'
+      ? { ...s, answered: s.answered.filter((id) => id !== pending.promptId) }
+      : s;
+  // A send from the confirm screen (a dictated `say` OR a dictated `answer`): ok closes it, refused shows why.
+  if (sc.kind === 'dictate' && sc.phase === 'sending' && (pending.kind === 'say' || pending.kind === 'answer')) {
+    if (f.t === 'refused')
+      return { state: replaceTop(base, { ...sc, phase: 'failed', error: refusedText(f) }), effects: [] };
+    return { state: pop(base), effects: [{ kind: 'persist' }] };
+  }
   if (pending.kind === 'answer') {
     if (f.t === 'ok') return { state: s, effects: [] };
-    // Refused: un-hide the ask and say why. `gone` = answered elsewhere, which is fine and common.
-    const answered = s.answered.filter((id) => id !== pending.promptId);
-    return { state: { ...s, answered, notice: { text: refusedText(f), until: now + NOTICE_MS } }, effects: [] };
-  }
-  // say / patch
-  if (sc.kind === 'dictate' && sc.phase === 'sending') {
-    if (f.t === 'refused')
-      return { state: replaceTop(s, { ...sc, phase: 'failed', error: refusedText(f) }), effects: [] };
-    return { state: pop(s), effects: [{ kind: 'persist' }] };
+    return { state: { ...base, notice: { text: refusedText(f), until: now + NOTICE_MS } }, effects: [] };
   }
   if (f.t === 'refused')
     return { state: { ...s, notice: { text: refusedText(f), until: now + NOTICE_MS } }, effects: [] };
