@@ -1,4 +1,4 @@
-import { getTextWidth } from '@evenrealities/pretext';
+import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
 import { LENS_FRAMES } from '../src/dev/lens-gallery';
 import { slots } from '../src/lens/draw';
@@ -20,6 +20,8 @@ describe('every gallery frame fits the lens', () => {
         expect(s.y + s.h, `${s.name} below the screen`).toBeLessThanOrEqual(SCREEN.h);
         expect(s.x + s.w).toBeLessThanOrEqual(SCREEN.w);
         expect(bytes(s.text), `${s.name} over the byte budget`).toBeLessThanOrEqual(BOX_BYTES);
+        const missing = [...s.text].filter((ch) => ch !== '\n' && getAdvW(ch.codePointAt(0)!) === 0);
+        expect(missing, `${s.name} draws glyphs the firmware lacks`).toEqual([]);
         const lines = s.text.split('\n');
         expect(lines.length * LINE, `${s.name} has more lines than its box`).toBeLessThanOrEqual(s.h);
         for (const l of lines)

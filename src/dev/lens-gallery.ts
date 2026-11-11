@@ -146,7 +146,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '13-question-subagent-more',
-    looking_for: 'Explore asks:, (+1 more in Aristo); no voice row (no free text)',
+    looking_for: 'Explore asks:, (+1 more in Aristo), "Answer this one in Aristo."; no options, no voice row',
     state: openRow(2),
   },
   {

@@ -13,7 +13,7 @@
  *  9. a prompt is the ask, the detail, then the options with the safe one first
  * 10. sparse: six body rows at most
  */
-import { getTextWidth } from '@evenrealities/pretext';
+import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import type { GlassesMark, GlassesRow } from '../gateway/glasses';
 import { wrapTextLines } from '../ui/stream';
 import {
@@ -101,8 +101,21 @@ const utf8 = new TextEncoder();
 const bytes = (t: string): number => utf8.encode(t).length;
 
 /** Cut `text` to `maxPx` (and `maxBytes`) with an ellipsis. Never splits a UTF-8 sequence. */
+/**
+ * Drop every character the firmware font chain has no glyph for (the lens draws it as nothing, so a
+ * leftover "💤 Asleep" would show as " Asleep" with a stray gap). Pretext's advance table is that chain.
+ */
+export function drawable(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (cp === 10 || getAdvW(cp) > 0) out += ch;
+  }
+  return out.replace(/[^\S\n]{2,}/g, ' ');
+}
+
 export function fit(text: string, maxPx: number, maxBytes = 200): string {
-  const clean = text.replace(/\s+/g, ' ').trim();
+  const clean = drawable(text).replace(/\s+/g, ' ').trim();
   if (getTextWidth(clean) <= maxPx && bytes(clean) <= maxBytes) return clean;
   const chars = Array.from(clean);
   while (chars.length) {
@@ -115,7 +128,9 @@ export function fit(text: string, maxPx: number, maxBytes = 200): string {
 
 /** Wrap to at most `maxLines`, the last line ending in … when text was left out. */
 export function block(text: string, maxLines: number, maxPx = TEXT_W): string[] {
-  const lines = wrapTextLines(text.trim(), maxPx).filter((l, i, all) => l !== '' || (i > 0 && i < all.length - 1));
+  const lines = wrapTextLines(drawable(text).trim(), maxPx).filter(
+    (l, i, all) => l !== '' || (i > 0 && i < all.length - 1),
+  );
   if (lines.length <= maxLines) return lines.length ? lines : [''];
   const kept = lines.slice(0, maxLines);
   kept[maxLines - 1] = fit(kept[maxLines - 1] + ' ' + lines[maxLines], maxPx);
@@ -139,7 +154,9 @@ function cursorPrefix(on: boolean): string {
 }
 
 /** A one-line row: cursor slot, then `main`, then ` - detail` cut first so the title survives. */
-export function row(on: boolean, main: string, detail = '', maxPx = TEXT_W): string {
+export function row(on: boolean, rawMain: string, rawDetail = '', maxPx = TEXT_W): string {
+  const main = drawable(rawMain).replace(/\s+/g, ' ').trim();
+  const detail = drawable(rawDetail).replace(/\s+/g, ' ').trim();
   const prefix = cursorPrefix(on);
   const room = maxPx - getTextWidth(prefix);
   if (!detail) return prefix + fit(main, room);
@@ -283,6 +300,8 @@ function layoutRaw(s: State): LensFrame {
           lines: 1,
         })),
       ];
+      // Several questions at once (`more`), or nothing the lens can offer: Aristo answers it, not the lens.
+      if (!list.length) body.push({ text: fit('Answer this one in Aristo.', TEXT_W), bright: B.normal, lines: 1 });
       return { left: t.row.title, right: status ?? ask.kind, leftBright: B.body, rightBright: B.needs, body };
     }
     const last = [...t.lines].reverse().find((l) => l.who === 'agent') ?? t.lines[t.lines.length - 1];
