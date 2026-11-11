@@ -6,3 +6,4 @@ harness.json
 coverage/
 playwright-report/
 test-results/
+src/gateway/glasses.ts

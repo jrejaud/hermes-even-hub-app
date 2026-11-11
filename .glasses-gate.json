@@ -1,0 +1,6 @@
+{
+  "dev": "VITE_UI_GALLERY=1 npx vite --host 127.0.0.1 --port {port} --strictPort",
+  "gestures": ["up", "down", "click", "double_click", "long_press"],
+  "backGesture": "double_click",
+  "settleMs": 900
+}
