@@ -30,7 +30,12 @@ import {
 } from './state';
 
 /** Brightness levels (SDK textColor 0-4). 0 may be invisible on glass, so nothing uses it. */
-export const B = { cursor: 4, needs: 3, body: 3, normal: 2, dim: 1 } as const;
+/**
+ * Measured in the simulator (glasses gate, 2026-11-11): textColor 4/3/2/1 draw at alpha 255/230/197/179, so the
+ * whole scale spans ~30%. Hierarchy therefore uses the widest steps: the cursor and what is being read at 4,
+ * needs-you at 3, chrome and choices at 2, everything quiet at 1.
+ */
+export const B = { cursor: 4, needs: 3, body: 4, normal: 2, dim: 1 } as const;
 export type Bright = 1 | 2 | 3 | 4;
 
 /** Design rule 8: the one fixed set of status markers, all in the firmware font. */
@@ -45,8 +50,8 @@ export const MARK: Record<GlassesMark, string> = {
 
 const MARK_BRIGHT: Record<GlassesMark, Bright> = {
   needs: B.needs,
-  working: B.normal,
-  'your-turn': B.normal,
+  working: B.dim,
+  'your-turn': B.dim,
   asleep: B.dim,
   done: B.dim,
   error: B.needs,
@@ -252,7 +257,7 @@ function message(left: string, right: string, text: string, rightBright: Bright 
   return {
     left,
     right,
-    leftBright: B.body,
+    leftBright: B.normal,
     rightBright,
     body: [{ text: block(text, 5).join('\n'), bright: B.normal, lines: 5 }],
   };
@@ -292,13 +297,13 @@ function layoutRaw(s: State): LensFrame {
     const body = listBoxes(list, cur, LIST_ROWS, (it, on) => {
       const v = (it as Extract<Item, { kind: 'view' }>).view;
       const glyph = v.needs ? MARK.needs : v.working ? MARK.working : MARK['your-turn'];
-      const bright: Bright = on ? B.cursor : v.needs ? B.needs : B.normal;
+      const bright: Bright = on ? B.cursor : v.needs ? B.needs : B.dim;
       return { text: row(on, `${glyph} ${v.name}`, counts(v.needs, v.working, v.total)), bright, lines: 1 };
     });
     return {
       left: 'Aristo',
       right,
-      leftBright: B.body,
+      leftBright: B.normal,
       rightBright: inbox?.needs && !status ? B.needs : B.normal,
       body,
     };
@@ -316,7 +321,7 @@ function layoutRaw(s: State): LensFrame {
     const right = status ?? counts(v.needs, working, v.total) + pos;
     if (!rows.length) return message(v.name, right, 'Nothing here.');
     const body = listBoxes(rows, cur, LIST_ROWS, viewRowBox);
-    return { left: v.name, right, leftBright: B.body, rightBright: v.needs && !status ? B.needs : B.normal, body };
+    return { left: v.name, right, leftBright: B.normal, rightBright: v.needs && !status ? B.needs : B.normal, body };
   }
 
   if (sc.kind === 'session') {
@@ -331,7 +336,7 @@ function layoutRaw(s: State): LensFrame {
       // 250 px of body: heading + 3 detail lines + 4 options would overflow by a few pixels.
       const detailLines = optRows >= OPTION_ROWS ? 2 : 3;
       const body: Box[] = [
-        { text: fit(heading, TEXT_W), bright: B.normal, lines: 1 },
+        { text: fit(heading, TEXT_W), bright: B.dim, lines: 1 },
         {
           text: block(ask.detail || ask.context || '', detailLines).join('\n'),
           bright: B.cursor,
@@ -346,7 +351,7 @@ function layoutRaw(s: State): LensFrame {
       ];
       // Several questions at once (`more`), or nothing the lens can offer: Aristo answers it, not the lens.
       if (!list.length) body.push({ text: fit('Answer this one in Aristo.', TEXT_W), bright: B.normal, lines: 1 });
-      return { left: t.row.title, right: status ?? ask.kind, leftBright: B.body, rightBright: B.needs, body };
+      return { left: t.row.title, right: status ?? ask.kind, leftBright: B.normal, rightBright: B.needs, body };
     }
     const last = [...t.lines].reverse().find((l) => l.who === 'agent') ?? t.lines[t.lines.length - 1];
     const right = status ?? [t.row.status, t.row.age].filter(Boolean).join(', ');
@@ -361,7 +366,7 @@ function layoutRaw(s: State): LensFrame {
         lines: 1,
       })),
     ];
-    return { left: t.row.title, right, leftBright: B.body, rightBright: B.normal, body };
+    return { left: t.row.title, right, leftBright: B.normal, rightBright: B.normal, body };
   }
 
   return dictationFrame(s, sc, status);
@@ -418,7 +423,7 @@ function dictationFrame(s: State, d: Dictation, status: string | null): LensFram
   return {
     left: d.title,
     right: status && s.notice ? status : PHASE_RIGHT[d.phase],
-    leftBright: B.body,
+    leftBright: B.normal,
     rightBright: d.phase === 'listening' ? B.cursor : B.normal,
     body,
   };

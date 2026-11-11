@@ -86,3 +86,23 @@ describe('glasses gate critic finds (2026-11-11)', () => {
     expect(getTextWidth(r)).toBeLessThanOrEqual(TEXT_W);
   });
 });
+
+describe('brightness hierarchy (rule 3), with the widest steps the scale allows', () => {
+  const frame = (name: string) => layout(LENS_FRAMES.find((f) => f.name === name)!.state);
+  it('home: cursor row 4, need-you rows 3, quiet rows 1', () => {
+    const b = frame('03-home').body;
+    expect(b[0].bright).toBe(4);
+    expect(b.find((x) => x.text.includes('Foreground'))!.bright).toBe(3);
+    expect(b.find((x) => x.text.includes('Daemon'))!.bright).toBe(1);
+  });
+  it('a question: the asked text 4, its heading 1', () => {
+    const b = frame('11-question').body;
+    expect(b[1].bright).toBe(4);
+    expect(b[0].bright).toBe(1);
+  });
+  it('a working session: the message 4, the activity line 1', () => {
+    const b = frame('14-working-session').body;
+    expect(b[0].bright).toBe(4);
+    expect(b[1].bright).toBe(1);
+  });
+});
