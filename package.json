@@ -39,7 +39,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
-    "@evenrealities/evenhub-cli": "^0.1.14",
+    "@evenrealities/evenhub-cli": "^0.2.0",
     "@evenrealities/evenhub-simulator": "^0.9.5",
     "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.6",

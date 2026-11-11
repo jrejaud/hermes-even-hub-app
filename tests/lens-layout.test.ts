@@ -2,7 +2,7 @@ import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
 import { LENS_FRAMES } from '../src/dev/lens-gallery';
 import { slots } from '../src/lens/draw';
-import { BODY_BOXES, BOX_BYTES, LINE, SCREEN, TEXT_W, block, fit, layout, row } from '../src/lens/layout';
+import { BODY_BOXES, BOX_BYTES, LINE, SCREEN, TEXT_W, block, drawable, fit, layout, row } from '../src/lens/layout';
 
 const bytes = (t: string): number => new TextEncoder().encode(t).length;
 /** Firmware font has no emoji; anything astral is dropped on the lens. */
@@ -60,5 +60,29 @@ describe('text fitting', () => {
 
   it('emoji in titles are visible in the source data, so the gallery covers them', () => {
     expect(LENS_FRAMES.some((f) => EMOJI.test(JSON.stringify(f.state.view ?? {})))).toBe(true);
+  });
+});
+
+describe('glasses gate critic finds (2026-11-11)', () => {
+  it('emoji with a font advance (✅) are still dropped; the app own glyphs survive', () => {
+    expect(drawable('🚀 Launch checklist ✅ with emoji')).toBe(' Launch checklist with emoji');
+    expect(drawable('▶ ● ▷ ○ □ ▲ ▽ … done')).toBe('▶ ● ▷ ○ □ ▲ ▽ … done');
+    expect(drawable('Ship it ❤️ now')).toBe('Ship it now');
+  });
+
+  it('a subagent row is indented (the indent survives whitespace cleanup)', () => {
+    const top = row(false, '▷ Parent', '', {});
+    const child = row(false, '▷ Child', '', { depth: 1 });
+    expect(getTextWidth(child.slice(0, child.indexOf('▷')))).toBeGreaterThan(
+      getTextWidth(top.slice(0, top.indexOf('▷'))),
+    );
+  });
+
+  it('the age is kept when a long detail is cut', () => {
+    const r = row(false, '● Deploy fix', 'Bash: ssh chiba systemctl --user restart aristod and then some more words', {
+      tail: '2m',
+    });
+    expect(r.endsWith(', 2m')).toBe(true);
+    expect(getTextWidth(r)).toBeLessThanOrEqual(TEXT_W);
   });
 });

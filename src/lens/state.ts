@@ -383,7 +383,7 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
     return { state: s, effects: navEffects(s), pending: {} };
   }
 
-  if (g === 'hold') return holdToTalk(s, sc, drawn, now);
+  if (g === 'hold') return holdToTalk(s, sc, drawn);
   if (g === 'release') return none(s);
 
   // tap: resolve against what was drawn
@@ -444,12 +444,12 @@ function startDictation(s: State, key: GlassesKey, title: string, via: 'hold' | 
 }
 
 /** Hold talks to the highlighted session (a list row) or the open one. */
-function holdToTalk(s: State, sc: Screen, drawn: State, now: number): GestureResult {
+function holdToTalk(s: State, sc: Screen, drawn: State): GestureResult {
   if (sc.kind === 'session') {
     const ask = liveAsk(s, sc.key);
     // A permission or a question that takes no free text can only be answered by tapping an option.
-    if (ask && !ask.freeText)
-      return { state: { ...s, notice: { text: 'tap an option', until: now + NOTICE_MS } }, effects: [], pending: {} };
+    // (No notice: a gesture word in the header is a hint, rule 5; the screen already says how it is answered.)
+    if (ask && !ask.freeText) return { state: s, effects: [], pending: {} };
     return startDictation(s, sc.key, sc.title, 'hold');
   }
   if (sc.kind === 'view') {

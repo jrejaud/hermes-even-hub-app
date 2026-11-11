@@ -137,7 +137,7 @@ describe('voice', () => {
   it('an ask without free text cannot be dictated to', () => {
     const s = press(open(2), 'hold');
     expect(top(s).kind).toBe('session');
-    expect(s.notice?.text).toBe('tap an option');
+    expect(s.notice).toBeNull();
   });
 
   it("a tapped 'Talk to it' row ends listening on the next tap", () => {

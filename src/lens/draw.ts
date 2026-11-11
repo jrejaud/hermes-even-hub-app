@@ -63,7 +63,7 @@ export function slots(f: LensFrame): Slot[] {
       bright: b.bright,
       capture: false,
     });
-    y += h + BOX_GAP;
+    y += h + BOX_GAP + (b.gap ?? 0);
   });
   return out;
 }
