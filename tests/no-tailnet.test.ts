@@ -16,7 +16,7 @@ function files(dir: string): string[] {
 describe('no tailnet addresses in shipped files', () => {
   for (const f of [...files('src').filter((p) => !p.startsWith('src/dev/')), 'app.json', 'index.html']) {
     it(f, () => {
-      expect(readFileSync(f, 'utf8').match(TAILNET)?.[0] ?? null).toBeNull();
+      expect(readFileSync(f, 'utf8').match(TAILNET)?.[0] ?? '').toBe('');
     });
   }
 });

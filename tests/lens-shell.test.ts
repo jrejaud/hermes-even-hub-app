@@ -45,7 +45,10 @@ function fakeBridge() {
   return b;
 }
 
-const tick = () => new Promise((r) => setTimeout(r, 5));
+/** Let every queued microtask run (the fake gateway and the fake bridge resolve on microtasks, never timers). */
+const tick = async () => {
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+};
 const ev = (eventType?: number): EvenHubEvent =>
   ({ sysEvent: eventType === undefined ? {} : { eventType } }) as unknown as EvenHubEvent;
 
@@ -144,9 +147,10 @@ describe('production first frames and long views (SC-9499 contract note, 2026-11
       connect: fake.connect,
       defaultProfile: { url: 'ws://fake.invalid', token: 'x' },
     });
-    await new Promise((r) => setTimeout(r, 120));
-    expect(fake.sent.filter((f) => f.t === 'open').map((f) => ('viewId' in f ? f.viewId : f.screen))).toContain(
-      'inbox',
+    await vi.waitFor(() =>
+      expect(fake.sent.filter((f) => f.t === 'open').map((f) => ('viewId' in f ? f.viewId : f.screen))).toContain(
+        'inbox',
+      ),
     );
   });
 

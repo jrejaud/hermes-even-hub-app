@@ -27,27 +27,29 @@ interface LogEntry {
   args: Record<string, unknown>;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Wait for a condition (vitest's own poller), naming what was awaited when it times out. */
 async function until<T>(what: string, fn: () => T | undefined | null | false, ms = 5000): Promise<T> {
-  const end = Date.now() + ms;
-  for (;;) {
-    const v = fn();
-    if (v) return v;
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await sleep(25);
-  }
+  return vi.waitFor(
+    () => {
+      const v = fn();
+      if (!v) throw new Error(`timed out waiting for ${what}`);
+      return v;
+    },
+    { timeout: ms, interval: 25 },
+  );
 }
 
 const log = async (): Promise<LogEntry[]> => (await (await fetch(`${ADMIN}/mock/answers`)).json()) as LogEntry[];
 /** Poll the gateway's host log until an entry matches. */
 async function waitLog(what: string, pred: (l: LogEntry) => boolean, ms = 5000): Promise<LogEntry> {
-  const end = Date.now() + ms;
-  for (;;) {
-    const hit = (await log()).find(pred);
-    if (hit) return hit;
-    if (Date.now() > end) throw new Error(`the gateway never handed a host: ${what}`);
-    await sleep(50);
-  }
+  return vi.waitFor(
+    async () => {
+      const hit = (await log()).find(pred);
+      if (!hit) throw new Error(`the gateway never handed a host: ${what}`);
+      return hit;
+    },
+    { timeout: ms, interval: 50 },
+  );
 }
 
 describe.skipIf(!URL_ || !ADMIN)('Aristo Lens against a live glasses gateway', () => {
@@ -71,12 +73,15 @@ describe.skipIf(!URL_ || !ADMIN)('Aristo Lens against a live glasses gateway', (
       .find((f): f is Extract<GlassesServerFrame, { t: 'thread' }> => f.t === 'thread' && f.row.key === key);
   /** The lens shows `s` somewhere (header or body), as last drawn. */
   const shows = (s: string) => texts.slice(-12).some((t) => t.includes(s));
-  const settle = () => sleep(150);
+  /** Last time anything was drawn: a gesture resolves against the DRAWN state, so wait until drawing stops. */
+  let lastDrawAt = Date.now();
+  const settle = () => until('the lens to stop redrawing', () => Date.now() - lastDrawAt > 150);
 
   beforeAll(async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     await fetch(`${ADMIN}/mock/reset`, { method: 'POST' });
     const record = (c: { content?: string; textObject?: { content?: string }[] }) => {
+      lastDrawAt = Date.now();
       if (c.textObject) for (const t of c.textObject) texts.push(t.content ?? '');
       if (c.content !== undefined) texts.push(c.content);
     };
@@ -88,7 +93,14 @@ describe.skipIf(!URL_ || !ADMIN)('Aristo Lens against a live glasses gateway', (
       shutDownPageContainer: async () => true,
       getLocalStorage: async (k: string) => store.get(k) ?? '',
       setLocalStorage: async (k: string, v: string) => (store.set(k, v), true),
-      onEvenHubEvent: (cb: (e: EvenHubEvent) => void) => ((fire = cb), () => {}),
+      // A gesture is activity too: settle() then waits for its redraw instead of returning before it.
+      onEvenHubEvent: (cb: (e: EvenHubEvent) => void) => {
+        fire = (e) => {
+          lastDrawAt = Date.now();
+          cb(e);
+        };
+        return () => {};
+      },
     };
     const connect = (url: string): SocketLike => {
       const ws = new WebSocket(url);
