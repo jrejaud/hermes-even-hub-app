@@ -15,7 +15,6 @@
     "preview": "vite preview --host 0.0.0.0",
     "sim": "evenhub-simulator http://localhost:5173 --automation-port 9898",
     "sim:glow": "evenhub-simulator http://localhost:5173 --automation-port 9898 --glow",
-    "sim:check": "node scripts/smoke-sim.mjs",
     "qr": "evenhub qr --url http://localhost:5173",
     "pack": "npm run build && node scripts/check-no-secrets.mjs release && node scripts/check-no-tailnet.mjs dist && evenhub pack app.json dist -o aristo-lens.ehpk --sdk-ver 0.0.14",
     "test": "vitest run",

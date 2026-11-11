@@ -15,7 +15,7 @@
  */
 import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import type { GlassesMark, GlassesRow } from '../gateway/glasses';
-import { wrapTextLines } from '../ui/stream';
+import { wrapTextLines } from './wrap';
 import {
   cursorIndex,
   items,
