@@ -32,6 +32,7 @@ import {
 /** The stt frame carries at most 60 s of 16 kHz mono s16le. */
 const MAX_PCM_BYTES = 60 * 16_000 * 2;
 const TICK_MS = 1_000;
+const LANDING_WINDOW_MS = 6_000;
 
 export interface AppDeps {
   bridge: EvenAppBridge;
@@ -54,7 +55,13 @@ export async function startApp(d: AppDeps): Promise<void> {
   let state: State = restore(initialState(profile ? 'connecting' : 'unconfigured'), saved);
   /** The state the lens is showing: taps resolve against it. */
   let drawn: State = state;
+  /**
+   * Landing on Inbox is decided by the Home frames that arrive before the wearer does anything: the gateway's
+   * FIRST home is sent before its host feeds are open (empty, hosts down) and a populated one follows ~1 s
+   * later (SC-9499 contract note), so the decision stays open for LANDING_WINDOW_MS or until a gesture.
+   */
   let landed = false;
+  const bootAt = now();
   let phoneErrors: string[] = [];
   const pending = new Map<string, Pending>();
 
@@ -163,15 +170,16 @@ export async function startApp(d: AppDeps): Promise<void> {
     const r = receive(state, f, now());
     let next = r.state;
     const effects = [...r.effects];
-    if (f.t === 'home' && !landed) {
-      landed = true;
+    if (f.t === 'home' && !landed && now() - bootAt < LANDING_WINDOW_MS) {
       const before = next.stack;
       next = landing(next, saved);
-      if (next.stack !== before)
+      if (next.stack !== before) {
+        landed = true;
         effects.push(
           { kind: 'send', frame: { t: 'open', screen: 'view', viewId: next.home![0].id } },
           { kind: 'persist' },
         );
+      }
     }
     set(next, effects);
   }
@@ -221,6 +229,7 @@ export async function startApp(d: AppDeps): Promise<void> {
       client.stop();
       return;
     }
+    landed = true; // the wearer is driving now: never move the screen under them
     const r = gesture(state, inp, now(), drawn);
     remember(r.pending);
     set(r.state, r.effects);

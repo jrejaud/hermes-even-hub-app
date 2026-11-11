@@ -128,6 +128,7 @@ export interface GlassesLine {
 }
 
 export type GlassesServerFrame =
+  /** First frame; sent again whenever a host comes up or goes down. */
   | { t: "hello"; protocol: number; host: string; hosts: { id: string; up: boolean }[] }
   /** Home: Inbox + starred views. Re-sent when a count changes while Home is open. */
   | { t: "home"; views: GlassesHomeView[] }

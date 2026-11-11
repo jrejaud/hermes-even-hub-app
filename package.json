@@ -1,7 +1,7 @@
 {
   "name": "claude-code-g2-hub",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "description": "Even Hub app (Even Realities G2) driving Claude Code sessions across several hosts — a non-exclusive replacement for G2 Terminal mode",
   "license": "MIT",

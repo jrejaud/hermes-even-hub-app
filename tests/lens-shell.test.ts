@@ -1,6 +1,6 @@
 import { OsEventTypeList, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
 import { describe, expect, it, vi } from 'vitest';
-import { FakeGateway, ASKS } from '../src/dev/fake-gateway';
+import { FakeGateway, ASKS, row } from '../src/dev/fake-gateway';
 import { gatewayUrl } from '../src/gateway/client';
 import { startApp } from '../src/lens/app';
 import { Lens } from '../src/lens/draw';
@@ -130,5 +130,51 @@ describe('app against the fake gateway', () => {
       'view',
     ]);
     expect(parseSaved(b.store.get('lens.saved.v1') ?? '')?.stack.map((x) => x.kind)).toEqual(['home', 'view']);
+  });
+});
+
+describe('production first frames and long views (SC-9499 contract note, 2026-11-11)', () => {
+  it('first Home is empty (feeds not open yet), the second is populated: the app lands on Inbox', async () => {
+    const b = fakeBridge();
+    const fake = new FakeGateway();
+    fake.coldFeeds = true;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await startApp({
+      bridge: b as never,
+      connect: fake.connect,
+      defaultProfile: { url: 'ws://fake.invalid', token: 'x' },
+    });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(fake.sent.filter((f) => f.t === 'open').map((f) => ('viewId' in f ? f.viewId : f.screen))).toContain(
+      'inbox',
+    );
+  });
+
+  it('a 300-row view pages in: scrolling near the end asks for the next 20 rows and the cursor walks past 20', async () => {
+    const b = fakeBridge();
+    const fake = new FakeGateway();
+    fake.rows = Array.from({ length: 300 }, (_, i) =>
+      row({
+        key: `chiba/s${i}`,
+        title: `Session ${i}`,
+        mark: i < 5 ? 'needs' : 'your-turn',
+        promptId: i < 5 ? `p${i}` : null,
+      }),
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await startApp({
+      bridge: b as never,
+      connect: fake.connect,
+      defaultProfile: { url: 'ws://fake.invalid', token: 'x' },
+    });
+    await tick();
+    for (let i = 0; i < 30; i++) {
+      b.fire({ textEvent: { eventType: OsEventTypeList.SCROLL_BOTTOM_EVENT } } as unknown as EvenHubEvent);
+      await tick();
+    }
+    const limits = fake.sent.flatMap((f) => (f.t === 'open' && 'limit' in f && f.limit ? [f.limit] : []));
+    expect(limits).toEqual([40]);
+    // the cursor is on row 31 of 300: the header shows the position against the full count
+    expect(b.upgrades.some((u) => u.content.includes('31/300'))).toBe(true);
   });
 });

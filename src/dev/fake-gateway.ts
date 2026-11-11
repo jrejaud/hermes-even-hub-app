@@ -156,7 +156,12 @@ export const LINES: Record<string, GlassesLine[]> = {
   ],
 };
 
-export function viewFrame(viewId: string, rows: GlassesRow[] = ROWS): Extract<GlassesServerFrame, { t: 'view' }> {
+/** Like the real gateway: `limit` rows (GLASSES_VIEW_LIMIT by default) and the rest counted in `more`. */
+export function viewFrame(
+  viewId: string,
+  rows: GlassesRow[] = ROWS,
+  limit = 20,
+): Extract<GlassesServerFrame, { t: 'view' }> {
   const v = HOME.find((h) => h.id === viewId) ?? { id: viewId, name: viewId, needs: 0, working: 0, total: 0 };
   return {
     t: 'view',
@@ -164,8 +169,8 @@ export function viewFrame(viewId: string, rows: GlassesRow[] = ROWS): Extract<Gl
     name: v.name,
     needs: rows.filter((r) => r.mark === 'needs').length,
     total: rows.length,
-    sections: [{ label: v.name, rows }],
-    more: 0,
+    sections: [{ label: v.name, rows: rows.slice(0, limit) }],
+    more: Math.max(0, rows.length - limit),
   };
 }
 
@@ -185,6 +190,8 @@ export class FakeGateway {
   rows: GlassesRow[] = ROWS.map((r) => ({ ...r }));
   /** Transcript the fake STT returns. */
   transcript = 'pause both and send me the final spend number';
+  /** Mimic production's first frames: hello with hosts down and an empty Home, the real ones ~1 s later. */
+  coldFeeds = false;
   private sock: (SocketLike & { emit(f: GlassesServerFrame): void }) | null = null;
 
   connect = (): SocketLike => {
@@ -220,7 +227,13 @@ export class FakeGateway {
           { id: 'box', up: true },
         ],
       });
-      sock.emit({ t: 'home', views: HOME });
+      if (this.coldFeeds) {
+        sock.emit({ t: 'home', views: HOME.map((v) => ({ ...v, needs: 0, working: 0, total: 0 })) });
+        setTimeout(() => {
+          sock.emit({ t: 'hello', protocol: 1, host: 'chiba', hosts: [{ id: 'chiba', up: true }] });
+          sock.emit({ t: 'home', views: HOME });
+        }, 30);
+      } else sock.emit({ t: 'home', views: HOME });
     });
     return sock;
   };
@@ -236,7 +249,7 @@ export class FakeGateway {
     if (f.t === 'ping') return out({ t: 'pong' });
     if (f.t === 'open') {
       if (f.screen === 'home') return out({ t: 'home', views: HOME });
-      if (f.screen === 'view') return out(viewFrame(f.viewId, this.rows));
+      if (f.screen === 'view') return out(viewFrame(f.viewId, this.rows, f.limit));
       return out(threadFrame(f.key, this.rows));
     }
     if (f.t === 'stt') return out({ t: 'ok', reqId: f.reqId, text: this.transcript });

@@ -8,6 +8,7 @@
  * Gestures in, `{ state, effects }` out. The shell (app.ts) runs the effects: socket frames, the mic,
  * persisting the open screen, closing the app.
  */
+import { GLASSES_VIEW_LIMIT } from '../gateway/glasses';
 import type {
   GlassesAsk,
   GlassesClientFrame,
@@ -52,6 +53,8 @@ export interface Banner extends BannerFrame {
 }
 
 export const BANNER_MS = 10_000;
+/** Ask for the next page this many rows before the end of what is loaded. */
+export const PAGE_AHEAD = 3;
 /** How long a refused answer's reason stays in the header. */
 export const NOTICE_MS = 4_000;
 
@@ -74,6 +77,8 @@ export interface State {
   answered: string[];
   /** Next request id. */
   seq: number;
+  /** Rows asked for per view, when more than the gateway's default page (GLASSES_VIEW_LIMIT) was paged in. */
+  limits: Record<string, number>;
 }
 
 export type Effect =
@@ -101,6 +106,7 @@ export function initialState(conn: Conn = 'connecting'): State {
     notice: null,
     answered: [],
     seq: 1,
+    limits: {},
   };
 }
 
@@ -119,7 +125,10 @@ export function openFor(s: State): GlassesOpen {
   for (let i = s.stack.length - 1; i >= 0; i--) {
     const sc = s.stack[i];
     if (sc.kind === 'home') return { screen: 'home' };
-    if (sc.kind === 'view') return { screen: 'view', viewId: sc.viewId };
+    if (sc.kind === 'view') {
+      const limit = s.limits[sc.viewId];
+      return limit ? { screen: 'view', viewId: sc.viewId, limit } : { screen: 'view', viewId: sc.viewId };
+    }
     if (sc.kind === 'session') return { screen: 'session', key: sc.key };
   }
   return { screen: 'home' };
@@ -374,7 +383,18 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
     const list = items(s, sc);
     if (!list.length) return none(s);
     const at = cursorIndex(s, sc);
-    return none(setCursor(s, sc, at + (g === 'down' ? 1 : -1)));
+    s = setCursor(s, sc, at + (g === 'down' ? 1 : -1));
+    // Paging: the gateway sends GLASSES_VIEW_LIMIT rows plus a `more` count (Inbox holds 300+). Near the end of
+    // what is loaded, ask for the next page; the frame comes back whole and the cursor stays on its row.
+    if (g === 'down' && sc.kind === 'view') {
+      const v = viewFor(s, sc.viewId);
+      const want = list.length + GLASSES_VIEW_LIMIT;
+      if (v && v.more > 0 && at + 1 >= list.length - PAGE_AHEAD && (s.limits[sc.viewId] ?? 0) < want) {
+        s = { ...s, limits: { ...s.limits, [sc.viewId]: want } };
+        return { state: s, effects: [{ kind: 'send', frame: { t: 'open', ...openFor(s) } }], pending: {} };
+      }
+    }
+    return none(s);
   }
 
   if (g === 'double') {
