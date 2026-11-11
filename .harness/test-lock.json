@@ -1,3 +1,11 @@
 {
-  "tests": []
+  "tests": [
+    "tests/e2e/gateway.e2e.test.ts",
+    "tests/lens-layout.test.ts",
+    "tests/lens-misc.test.ts",
+    "tests/lens-phone.test.ts",
+    "tests/lens-shell.test.ts",
+    "tests/lens-state.test.ts",
+    "tests/no-tailnet.test.ts"
+  ]
 }
