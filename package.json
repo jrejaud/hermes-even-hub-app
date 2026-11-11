@@ -34,7 +34,7 @@
     "contract:check": "node scripts/contract.mjs check",
     "contract:sync": "node scripts/contract.mjs sync",
     "dev:fake": "VITE_FAKE_GATEWAY=1 vite --host 0.0.0.0",
-    "serve": "vite --host 127.0.0.1 --strictPort"
+    "serve": "vite build --logLevel error && vite preview --host 127.0.0.1 --strictPort"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
