@@ -25,3 +25,8 @@ docs/ui/*.png
 bridge/.env.tab-agent
 fcm-tokens.json
 fcm-sender-key.json
+# harness
+coverage/
+test-results/
+playwright-report/
+.harness/state/

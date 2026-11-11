@@ -1,0 +1,5 @@
+{
+  "ui": ["src/**", "app/**", "components/**"],
+  "tests": ["e2e/**", "tests/**"],
+  "battery": "npx playwright test e2e/*.crud.spec.ts e2e/fuzz.spec.ts"
+}

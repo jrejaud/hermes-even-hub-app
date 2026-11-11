@@ -1,0 +1,15 @@
+zone(504, 96, 472, 280, 'ARISTO · TAILNET ONLY');
+arrow('M 260,182 H 202'); label(231, 182, 'BLE');
+arrow('M 440,182 H 518', true); label(479, 182, 'WSS + TOKEN');
+arrow('M 700,166 H 732 Q 740,166 740,158 V 160 Q 740,152 748,152 H 778');
+arrow('M 700,182 H 732 Q 740,182 740,190 V 232 Q 740,240 748,240 H 778');
+arrow('M 700,198 H 716 Q 724,198 724,206 V 320 Q 724,328 732,328 H 778');
+arrow('M 610,214 V 432 Q 610,440 602,440 H 442', true); label(526, 440, 'ASKS');
+arrow('M 260,440 H 128 Q 120,440 120,432 V 216'); label(190, 440, 'MIRRORED');
+node(40, 150, 160, 64, 'LENS', 'G2 glasses', '576x288 · ring + temple');
+node(260, 150, 180, 64, 'PHONE', 'Aristo Lens app', 'Even Hub WebView');
+node(520, 150, 180, 64, 'CHIBA', 'Glasses gateway', 'token · views · one feed', true);
+node(780, 120, 180, 64, 'ARISTO', 'Overlord', 'sessions');
+node(780, 208, 180, 64, 'ARISTO', 'Box', 'sessions');
+node(780, 296, 180, 64, 'ARISTO', 'Chiba', 'sessions · views home');
+node(260, 408, 180, 64, 'PHONE', 'Glasses Notifications', 'app closed: Even mirrors it');

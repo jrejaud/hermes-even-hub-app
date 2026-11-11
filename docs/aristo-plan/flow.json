@@ -1,0 +1,25 @@
+{
+  "title": "Aristo on the G2: screen flow",
+  "screens": [
+    { "id": "home", "n": "1", "title": "Home: views", "png": "flow/home.png", "caption": "double tap: close the app", "col": 0, "row": 1 },
+    { "id": "banner", "n": "7", "title": "Banner: another session asks", "png": "flow/banner.png", "caption": "drawn over any screen · Later or 10 s: it goes away", "col": 1, "row": 0, "accent": true },
+    { "id": "list", "n": "2", "title": "A view: its sessions", "png": "flow/list.png", "caption": "hold: talk to the highlighted row · double tap: Home", "col": 1, "row": 1 },
+    { "id": "question", "n": "3", "title": "Question", "png": "flow/question.png", "caption": "tap an option: answered, back to the list", "col": 2, "row": 0 },
+    { "id": "permission", "n": "4", "title": "Permission ask", "png": "flow/permission.png", "caption": "tap Allow or Deny: answered, back to the list", "col": 2, "row": 1 },
+    { "id": "thread", "n": "5", "title": "Working session", "png": "flow/thread.png", "caption": "double tap: back to the list", "col": 2, "row": 2 },
+    { "id": "dictate", "n": "6", "title": "Dictate, then confirm", "png": "flow/dictate.png", "caption": "tap Send: sent, back where you came from", "col": 3, "row": 1 }
+  ],
+  "boxes": [{ "id": "notif", "title": "Lens notification", "sub": "app closed · mirrored from phone", "col": 0, "row": 2 }],
+  "edges": [
+    { "from": "home", "to": "list", "label": "tap a view" },
+    { "from": "list", "to": "question", "label": "tap [?] row" },
+    { "from": "list", "to": "permission", "label": "tap [!] row" },
+    { "from": "list", "to": "thread", "label": "tap any other row" },
+    { "from": "banner", "to": "question", "label": "tap Answer now", "accent": true },
+    { "from": "question", "to": "dictate", "label": "hold, or last row" },
+    { "from": "permission", "to": "dictate", "label": "say why" },
+    { "from": "thread", "to": "dictate", "label": "hold, or Talk to it" },
+    { "from": "notif", "to": "home", "label": "open the app: lands on Inbox" }
+  ],
+  "footer": { "heading": "ON EVERY SCREEN", "text": "swipe = move the cursor  ·  double tap = back one level  ·  an arrow is a gesture that changes the screen" }
+}
