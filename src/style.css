@@ -1,6 +1,11 @@
 :root {
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
     sans-serif;
   color: #172033;
   background: #f5f7fa;
@@ -81,7 +86,7 @@ h1 {
   border-radius: 999px;
   background: #ffffff;
   color: #38465a;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -122,7 +127,7 @@ label {
   display: grid;
   gap: 7px;
   color: #263449;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -163,7 +168,7 @@ button {
   cursor: pointer;
 }
 
-button[type="button"] {
+button[type='button'] {
   border-color: #c4cedb;
   background: #ffffff;
   color: #2d3b4f;
@@ -183,7 +188,7 @@ button:disabled {
   border-radius: 8px;
   background: #fff7f7;
   color: #9b1c1c;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .setup-errors[hidden] {
@@ -219,7 +224,7 @@ button:disabled {
 
 .setup-toggle-action {
   color: #2563eb;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -238,7 +243,7 @@ code {
   background: #1f2937;
   color: #f8fafc;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -252,7 +257,7 @@ code {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  button[type="button"] {
+  button[type='button'] {
     min-width: 124px;
   }
 }

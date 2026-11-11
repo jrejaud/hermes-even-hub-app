@@ -96,6 +96,25 @@ export type LensBridge = Pick<
   'createStartUpPageContainer' | 'rebuildPageContainer' | 'textContainerUpgrade'
 >;
 
+/**
+ * The SDK reaches the glasses only through `window.flutter_inappwebview`, which the Even app and the simulator
+ * inject. In a plain browser (the phone page previewed on its own, the harness UI sweep) it is absent and every
+ * draw resolves as rejected: that is not a lens failure, so it is said once as a warning, not as errors.
+ */
+export function hasEvenHost(): boolean {
+  return typeof window === 'undefined' || 'flutter_inappwebview' in window;
+}
+
+let warnedNoHost = false;
+function rejected(msg: string): void {
+  if (hasEvenHost()) {
+    console.error(msg);
+    return;
+  }
+  if (!warnedNoHost) console.warn('[lens] no Even host in this page (plain browser): nothing is drawn on glasses');
+  warnedNoHost = true;
+}
+
 export class Lens {
   private created = false;
   private geom = '';
@@ -123,7 +142,7 @@ export class Lens {
       else this.calls.rebuild++;
       if (!success) {
         this.calls.rejected++;
-        console.error(`[lens] page ${this.created ? 'rebuild' : 'create'} rejected (${String(ok)})`);
+        rejected(`[lens] page ${this.created ? 'rebuild' : 'create'} rejected (${String(ok)})`);
         // A failed create still consumes the one-shot create: every later page must be a rebuild.
         if (!this.created) {
           this.created = true;
@@ -153,7 +172,7 @@ export class Lens {
       this.calls.upgrade++;
       if (ok === false) {
         this.calls.rejected++;
-        console.error(`[lens] upgrade of ${s.name} rejected (${s.text.length} chars)`);
+        rejected(`[lens] upgrade of ${s.name} rejected (${s.text.length} chars)`);
         continue;
       }
       this.shown.set(s.id, { text: s.text, bright: s.bright });
