@@ -2,7 +2,7 @@
 
 Two changes are proposed: voice becomes press-and-hold with a live level bar and the words appearing as you speak, and the session screen becomes a scrollable conversation with Terminal mode's best patterns. Nothing here is built yet; each item has a number so you can accept, cut or change it.
 
-## Plainer status markers (M, needs your pick)
+## Plainer status markers (M: you chose M1, 2026-11-12)
 
 The firmware font has no emoji and no ✓, ⚠ or ⏳ (emoji draw as an empty box). It does have `!` `?` `…` `→` `z` `×` `◐`, so the markers can read as words would.
 
@@ -68,7 +68,7 @@ Hold to talk becomes the only way to start recording, and the screen shows that 
 8. **V8 Safety.** 60 s cap with the counter turning into a countdown at 50 s; a lost release (the glasses never send it) ends on the next tap.
 9. **V9 Standard component.** The whole thing ships as a reusable voice-capture module in the `even-frontend` skill (input handling, level meter, partial-transcript box, confirm), so any G2 app gets the same behaviour.
 
-**Decision S, the speech engine (needs your pick):**
+**Decision S, the speech engine: you chose hosted streaming (S2), 2026-11-12.** Deepgram is the default pick: its realtime API takes our 16 kHz audio as is, and new accounts start with free credit. Signing up creates an account in your name, so that happens only once you approve this list.
 
 The glasses' own speech recognition ("Hey Even", Soniox inside the Even app) is not available to Hub apps: the SDK has no speech API, and Even's official `asr` template ships a blank stub and says to bring your own provider.
 
