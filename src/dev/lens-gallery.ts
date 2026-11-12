@@ -6,7 +6,7 @@
  *
  *   VITE_UI_GALLERY=1 npm run dev  +  npm run sim  +  npm run ui:capture
  */
-import type { ServerFrame as GlassesServerFrame } from '../gateway/glasses-v2';
+import type { GlassesServerFrame } from '../gateway/glasses';
 import { gesture, initialState, receive, reply, type Gesture, type State } from '../lens/state';
 import { HOME, ROWS, row, threadFrame, viewFrame } from './fake-gateway';
 

@@ -21,7 +21,7 @@ import type {
   GlassesRow,
   GlassesServerFrame,
 } from '../gateway/glasses';
-import type { ClientFrame, ServerFrame } from '../gateway/glasses-v2';
+import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from '../gateway/glasses';
 import { conversationLines, scrollAnchor } from './conversation';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;

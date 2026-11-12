@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ServerFrame as GlassesServerFrame } from '../src/gateway/glasses-v2';
+import type { GlassesServerFrame } from '../src/gateway/glasses';
 import { ASKS, HOME, ROWS, threadFrame, viewFrame } from '../src/dev/fake-gateway';
 import {
   BANNER_MS,

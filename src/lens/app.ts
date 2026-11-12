@@ -6,7 +6,7 @@
  */
 import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
 import { GatewayClient, type GatewayProfile, type SocketLike } from '../gateway/client';
-import type { ServerFrame } from '../gateway/glasses-v2';
+import type { GlassesServerFrame as ServerFrame } from '../gateway/glasses';
 import { serializeLatest } from '../util/coalesce';
 import { Lens } from './draw';
 import { toInput } from './input';

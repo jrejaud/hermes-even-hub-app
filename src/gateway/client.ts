@@ -6,7 +6,7 @@
  * so via the state machine), and forwards every server frame to `onFrame`.
  */
 import { GLASSES_PATH } from './glasses';
-import type { ClientFrame, ServerFrame } from './glasses-v2';
+import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from './glasses';
 
 export interface GatewayProfile {
   /** Base URL of the views home, e.g. `wss://agent.alastor.space`. */
