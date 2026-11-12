@@ -2,6 +2,25 @@
 
 Two changes are proposed: voice becomes press-and-hold with a live level bar and the words appearing as you speak, and the session screen becomes a scrollable conversation with Terminal mode's best patterns. Nothing here is built yet; each item has a number so you can accept, cut or change it.
 
+## Plainer status markers (M, needs your pick)
+
+The firmware font has no emoji and no ✓, ⚠ or ⏳ (emoji draw as an empty box). It does have `!` `?` `…` `→` `z` `×` `◐`, so the markers can read as words would.
+
+<details><summary>Proposed set M1</summary>
+
+| Status    | Now     | M1  |
+| --------- | ------- | --- |
+| Needs you | ●       | !   |
+| Working   | ▷       | …   |
+| Your turn | ○       | →   |
+| Asleep    | ○ (dim) | z   |
+| Done      | □       | ·   |
+| Error     | ▲       | ×   |
+
+The cursor stays `▶`, and "more below" stays `▽`.
+
+</details>
+
 ## What the status markers mean today
 
 One fixed set of glyphs, chosen by Aristo's status for each session. The lens is a single colour, so "brighter" is the only other signal: the row under the cursor is brightest, rows that need you are bright, everything else is dim.
@@ -42,7 +61,7 @@ Hold to talk becomes the only way to start recording, and the screen shows that 
 1. **V1 Hold to talk, release to stop.** The "Talk to it" and "Say something else…" rows go away; hold is the only start. A hold under 0.6 s is ignored (an accidental press).
 2. **V2 Right temple or ring only.** The left temple's hold belongs to Even's system menu; command-center ignores it for the same reason.
 3. **V3 Listening screen.** Title `● listening 6s` (seconds held, counting up), a level bar under it, then the words so far (last 4 lines). No gesture hints.
-4. **V4 Level bar.** A text bar of `━` (lit) and `─` (unlit) cells across the width, driven by the loudness of each 100 ms of audio (fast rise, slow fall, noise floor tracked), redrawn 5 times a second. Cheap and flicker-free; an image waveform like muxway's is the optional upgrade.
+4. **V4 ~~Level bar~~ dropped (your call, 2026-11-12).** No waveform or meter; the counting title is the only sign it is recording.
 5. **V5 Words as you speak.** Partial transcripts replace the tail of the text about once a second while you hold; settled words stay. Needs streaming speech-to-text on the gateway (decision S below).
 6. **V6 Release → confirm.** "… finishing" for under a second, then the final text with Send / Redo / Cancel, as now. On a permission it still reads "Deny, with this note:" (speech never approves).
 7. **V7 Cancel while holding.** Double tap discards; so does the app leaving the screen.
@@ -50,6 +69,8 @@ Hold to talk becomes the only way to start recording, and the screen shows that 
 9. **V9 Standard component.** The whole thing ships as a reusable voice-capture module in the `even-frontend` skill (input handling, level meter, partial-transcript box, confirm), so any G2 app gets the same behaviour.
 
 **Decision S, the speech engine (needs your pick):**
+
+The glasses' own speech recognition ("Hey Even", Soniox inside the Even app) is not available to Hub apps: the SDK has no speech API, and Even's official `asr` template ships a blank stub and says to bring your own provider.
 
 - **S1 Self-hosted on Chiba (recommended to start).** whisper.cpp, which the gateway already uses, re-transcribes the clip so far every second while you hold (glancecode's method). No new account or cost; words trail your voice by about 1-3 s (unverified on Chiba).
 - **S2 Hosted streaming (Deepgram or Soniox, the engine Even itself uses).** Words in about 0.5 s; needs a new account and API key (none exists in 1Password) and costs per minute.
