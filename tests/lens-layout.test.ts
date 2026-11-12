@@ -1,6 +1,6 @@
 import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
-import { LENS_FRAMES } from '../src/dev/lens-gallery';
+import { GALLERY_NOW, LENS_FRAMES } from '../src/dev/lens-gallery';
 import { slots } from '../src/lens/draw';
 import { BODY_BOXES, BOX_BYTES, LINE, SCREEN, TEXT_W, block, drawable, fit, layout, row } from '../src/lens/layout';
 
@@ -11,7 +11,7 @@ const EMOJI = /[\u{1F000}-\u{1FFFF}☀-⛿✀-➿]/u;
 describe('every gallery frame fits the lens', () => {
   for (const f of LENS_FRAMES) {
     it(f.name, () => {
-      const frame = layout(f.state);
+      const frame = layout(f.state, GALLERY_NOW);
       expect(frame.body.length).toBeLessThanOrEqual(BODY_BOXES);
       const all = slots(frame);
       expect(all.length).toBeLessThanOrEqual(8);
@@ -88,17 +88,21 @@ describe('glasses gate critic finds (2026-11-11)', () => {
 });
 
 describe('brightness hierarchy (rule 3), with the widest steps the scale allows', () => {
-  const frame = (name: string) => layout(LENS_FRAMES.find((f) => f.name === name)!.state);
+  const frame = (name: string) => layout(LENS_FRAMES.find((f) => f.name === name)!.state, GALLERY_NOW);
   it('home: cursor row 4, need-you rows 3, quiet rows 1', () => {
     const b = frame('03-home').body;
     expect(b[0].bright).toBe(4);
     expect(b.find((x) => x.text.includes('Foreground'))!.bright).toBe(3);
     expect(b.find((x) => x.text.includes('Daemon'))!.bright).toBe(1);
   });
-  it('a question: the asked text 4, its heading 1', () => {
+  it('a question: the asked text 4 (no heading that only repeats "question"), a heading when there is one is 1', () => {
     const b = frame('11-question').body;
-    expect(b[1].bright).toBe(4);
-    expect(b[0].bright).toBe(1);
+    expect(b[0].bright).toBe(4);
+    expect(b[0].text).toContain('Which do I pause');
+    const sub = frame('13-question-subagent-more').body;
+    expect(sub[0]).toMatchObject({ bright: 1 });
+    expect(sub[0].text).toMatch(/^Explore asks:/);
+    expect(sub[1].bright).toBe(4);
   });
   it('a working session: the message 4, the activity line 1', () => {
     const b = frame('14-working-session').body;

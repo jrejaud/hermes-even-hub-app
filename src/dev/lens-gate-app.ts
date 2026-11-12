@@ -6,7 +6,7 @@
  * captured too. Only active when VITE_UI_GALLERY=1 AND the page was opened with ?lensGate=<url>.
  */
 import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
-import { LENS_FRAMES } from './lens-gallery';
+import { GALLERY_NOW, LENS_FRAMES } from './lens-gallery';
 import { runLensGate } from './lens-gate-client';
 import { Lens } from '../lens/draw';
 import { toInput } from '../lens/input';
@@ -22,7 +22,8 @@ export function screenOf(s: State): string {
   if (sc.kind === 'home') return `home:${s.conn}`;
   if (sc.kind === 'view') return `view:${sc.viewId}`;
   if (sc.kind === 'session') return `session:${sc.key}:${liveAsk(s, sc.key) ? 'ask' : 'thread'}`;
-  return `dictate:${sc.key}:${sc.phase}`;
+  if (sc.kind === 'menu') return `menu:${sc.key}`;
+  return `dictate:${sc.key ?? 'new'}:${sc.phase}`;
 }
 
 export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
@@ -41,10 +42,10 @@ export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
       };
     }),
     boot: async (b) => {
-      await lensFor(b).draw(layout(initialState('connecting')));
+      await lensFor(b).draw(layout(initialState('connecting'), GALLERY_NOW));
     },
     render: async (b, s) => {
-      await lensFor(b).draw(layout(s));
+      await lensFor(b).draw(layout(s, GALLERY_NOW));
     },
     onEvent: (s, e) => {
       const inp = toInput(e as EvenHubEvent);

@@ -16,7 +16,9 @@
 import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import type { GlassesMark, GlassesRow } from '../gateway/glasses';
 import { wrapTextLines } from './wrap';
+import { CONVO_LINES, conversationLines, convoWindow } from './conversation';
 import {
+  anchorFor,
   cursorIndex,
   items,
   liveAsk,
@@ -40,12 +42,13 @@ export type Bright = 1 | 2 | 3 | 4;
 
 /** Design rule 8: the one fixed set of status markers, all in the firmware font. */
 export const MARK: Record<GlassesMark, string> = {
-  needs: '●',
-  working: '▷',
-  'your-turn': '○',
-  asleep: '○',
-  done: '□',
-  error: '▲',
+  // Jordan's M1 set (2026-11-12, SC-9703): read like words, all in the firmware font (no emoji, no ✓).
+  needs: '!',
+  working: '…',
+  'your-turn': '→',
+  asleep: 'z',
+  done: '·',
+  error: '×',
 };
 
 const MARK_BRIGHT: Record<GlassesMark, Bright> = {
@@ -110,7 +113,7 @@ const utf8 = new TextEncoder();
 const bytes = (t: string): number => utf8.encode(t).length;
 
 /** The firmware glyphs this app draws on purpose (even-frontend safe set); never stripped. */
-const SAFE_GLYPHS = new Set([...'━─█▇▆▅▄▃▂▁▲△▶▷▼▽◀◁●○■□★☆╭╮╯╰│♠♣♥♦…']);
+const SAFE_GLYPHS = new Set([...'━─█▇▆▅▄▃▂▁▲△▶▷▼▽◀◁●○■□★☆╭╮╯╰│♠♣♥♦…→×·']);
 const PICTO = /\p{Extended_Pictographic}/u;
 
 /**
@@ -263,8 +266,8 @@ function message(left: string, right: string, text: string, rightBright: Bright 
   };
 }
 
-export function layout(s: State): LensFrame {
-  const f = layoutRaw(s);
+export function layout(s: State, now: number = Date.now()): LensFrame {
+  const f = layoutRaw(s, now);
   return {
     ...f,
     // A clear gutter between where-you-are and the live status (the critic saw them nearly touch).
@@ -274,7 +277,7 @@ export function layout(s: State): LensFrame {
   };
 }
 
-function layoutRaw(s: State): LensFrame {
+function layoutRaw(s: State, now: number): LensFrame {
   if (s.banner) return bannerFrame(s);
   const sc = top(s);
   const status = connRight(s);
@@ -331,18 +334,17 @@ function layoutRaw(s: State): LensFrame {
     const list = items(s);
     const cur = cursorIndex(s);
     if (ask) {
-      const heading = (ask.asker ? `${ask.asker} ` : '') + ask.ask + (ask.more ? ` (+${ask.more} more in Aristo)` : '');
+      // A label that only repeats the header's ask kind ("Question" under "question") is dropped.
+      const label = ask.ask.trim().toLowerCase() === ask.kind.toLowerCase() ? '' : ask.ask;
+      const heading = [ask.asker ?? '', label, ask.more ? `(+${ask.more} more in Aristo)` : '']
+        .filter(Boolean)
+        .join(' ');
       const optRows = Math.min(OPTION_ROWS, list.length);
-      // 250 px of body: heading + 3 detail lines + 4 options would overflow by a few pixels.
-      const detailLines = optRows >= OPTION_ROWS ? 2 : 3;
+      // The detail is at most 2 lines, cut with …; its box is as tall as its text so the options sit right under it.
+      const detail = block(ask.detail || ask.context || '', 2);
       const body: Box[] = [
-        { text: fit(heading, TEXT_W), bright: B.dim, lines: 1 },
-        {
-          text: block(ask.detail || ask.context || '', detailLines).join('\n'),
-          bright: B.cursor,
-          lines: detailLines,
-          gap: SECTION_GAP,
-        },
+        ...(heading ? [{ text: fit(heading, TEXT_W), bright: B.dim, lines: 1 } as Box] : []),
+        { text: detail.join('\n'), bright: B.cursor, lines: Math.max(1, detail.length), gap: SECTION_GAP },
         ...listBoxes(list, cur, optRows, (it, on) => ({
           text: row(on, optionLabel(s, sc.key, it)),
           bright: on ? B.cursor : B.normal,
@@ -353,76 +355,114 @@ function layoutRaw(s: State): LensFrame {
       if (!list.length) body.push({ text: fit('Answer this one in Aristo.', TEXT_W), bright: B.normal, lines: 1 });
       return { left: t.row.title, right: status ?? ask.kind, leftBright: B.normal, rightBright: B.needs, body };
     }
-    const last = [...t.lines].reverse().find((l) => l.who === 'agent') ?? t.lines[t.lines.length - 1];
-    const right = status ?? [t.row.status, t.row.age].filter(Boolean).join(', ');
-    // The message box is as tall as the message (1-3 lines), so a short reply does not strand the actions.
-    const msg = block(last?.text ?? 'No messages yet.', 3);
+    // The conversation, a page at a time (swipe pages it), with what the session is doing on a dim last line.
+    const win = convoWindow(conversationLines(t.lines), anchorFor(s, sc.key));
+    const pageTag = win.pages > 1 ? `${win.page}/${win.pages}` : '';
+    const right = status ?? [t.row.status, pageTag].filter(Boolean).join(', ');
+    // Opens with the session's marker, so it reads as status, not one more message (brightness alone spans ~30% on glass).
+    const activity = t.row.detail
+      ? `${MARK[t.row.mark]} ${t.row.detail}`
+      : t.row.mark === 'working'
+        ? `${MARK.working} working`
+        : '';
     const body: Box[] = [
-      { text: msg.join('\n'), bright: B.body, lines: msg.length, gap: t.row.detail ? 0 : SECTION_GAP },
-      ...(t.row.detail ? [{ text: fit(t.row.detail, TEXT_W), bright: B.dim, lines: 1, gap: SECTION_GAP }] : []),
-      ...listBoxes(list, cur, 3, (it, on) => ({
-        text: row(on, actionLabel(it)),
-        bright: on ? B.cursor : B.normal,
-        lines: 1,
-      })),
+      // As tall as the page (at most CONVO_LINES), so a short conversation keeps its activity line right under it.
+      { text: win.lines.join('\n'), bright: B.body, lines: Math.min(CONVO_LINES, Math.max(1, win.lines.length)) },
+      ...(activity ? [{ text: fit(activity, TEXT_W), bright: B.dim, lines: 1 } as Box] : []),
     ];
     return { left: t.row.title, right, leftBright: B.normal, rightBright: B.normal, body };
   }
 
-  return dictationFrame(s, sc, status);
+  if (sc.kind === 'menu') {
+    const list = items(s);
+    const cur = cursorIndex(s);
+    const t = threadFor(s, sc.key);
+    const body = listBoxes(list, cur, 3, (it, on) => ({
+      text: row(on, actionLabel(it)),
+      bright: on ? B.cursor : B.normal,
+      lines: 1,
+    }));
+    return { left: sc.title, right: status ?? t?.row.status ?? '', leftBright: B.normal, rightBright: B.normal, body };
+  }
+
+  return dictationFrame(s, sc, status, now);
 }
 
 function optionLabel(s: State, key: string, it: Item): string {
   const ask = liveAsk(s, key);
-  if (it.kind === 'voice') return ask?.kind === 'permission' ? 'Deny and say why…' : 'Say something else…';
   if (it.kind === 'option' && ask) return ask.options[it.index]?.label ?? '';
   return '';
 }
 
 function actionLabel(it: Item): string {
-  if (it.kind === 'talk') return 'Talk to it';
+  if (it.kind === 'stop') return 'Stop';
   if (it.kind === 'done') return 'Mark done';
   if (it.kind === 'close') return 'Set aside';
   return '';
 }
 
 const PHASE_RIGHT: Record<Dictation['phase'], string> = {
-  listening: 'listening…',
-  transcribing: 'transcribing…',
-  confirm: 'confirm',
+  listening: '● listening',
+  finishing: 'finishing…',
+  confirm: 'send this?',
   empty: 'heard nothing',
   sending: 'sending…',
   failed: 'failed',
 };
 
-function dictationFrame(s: State, d: Dictation, status: string | null): LensFrame {
+/** Lines of transcript on the dictation screen: live words while you hold, the final text after. */
+const DICT_LINES = 4;
+
+function dictationFrame(s: State, d: Dictation, status: string | null, now: number): LensFrame {
   const target = sendTarget(s, d);
   const what =
-    target.kind === 'answer' ? (target.ask.kind === 'permission' ? 'Deny, with this note:' : 'Answer:') : 'Message:';
-  const text =
-    d.phase === 'listening'
-      ? 'Speak now.'
-      : d.phase === 'transcribing'
-        ? 'Transcribing…'
-        : d.phase === 'empty'
-          ? 'Nothing was heard.'
-          : d.phase === 'failed'
-            ? `Could not finish: ${d.error ?? 'unknown error'}`
-            : d.text;
+    target.kind === 'create'
+      ? 'First message:'
+      : target.kind === 'answer'
+        ? target.ask.kind === 'permission'
+          ? 'Deny, with this note:'
+          : 'Answer:'
+        : 'Message:';
+  const live = d.phase === 'listening' || d.phase === 'finishing';
+  const text = live
+    ? d.text || (d.interim ? '' : d.phase === 'listening' ? 'Speak now.' : '…')
+    : d.phase === 'empty'
+      ? 'Nothing was heard.'
+      : d.phase === 'failed'
+        ? `Could not finish: ${d.error ?? 'unknown error'}`
+        : d.text;
+  // Live: settled words bright (newest lines kept), the tail Soniox may still change on its own DIM line below.
+  // Confirm: 3 lines, so Send / Say it again / Cancel fit under them.
+  const n = DICT_LINES - 1;
+  const shown = live ? wrapTextLines(text, TEXT_W).slice(-n) : block(text, n);
+  // In parentheses: these words may still change (a dim line alone is too subtle on glass).
+  const tail = live && d.interim ? fit(`(${d.interim}…)`, TEXT_W) : '';
   const list = items(s);
   const cur = cursorIndex(s);
   const body: Box[] = [
     { text: fit(what, TEXT_W), bright: B.normal, lines: 1 },
-    { text: block(text, 3).join('\n'), bright: B.cursor, lines: 3 },
+    ...(shown.join('').trim()
+      ? [
+          {
+            text: shown.join('\n'),
+            bright: B.cursor,
+            lines: Math.max(1, shown.length),
+            gap: list.length ? SECTION_GAP : 0,
+          } as Box,
+        ]
+      : []),
+    ...(tail ? [{ text: tail, bright: B.dim, lines: 1 } as Box] : []),
     ...list.map((it, i) => ({
       text: row(i === cur, dictLabel(it)),
       bright: (i === cur ? B.cursor : B.normal) as Bright,
       lines: 1,
     })),
   ];
+  const secs = Math.max(0, Math.floor((now - d.startedAt) / 1000));
+  const right = status && s.notice ? status : d.phase === 'listening' ? `● ${secs}s` : PHASE_RIGHT[d.phase];
   return {
     left: d.title,
-    right: status && s.notice ? status : PHASE_RIGHT[d.phase],
+    right,
     leftBright: B.normal,
     rightBright: d.phase === 'listening' ? B.cursor : B.normal,
     body,
@@ -431,7 +471,7 @@ function dictationFrame(s: State, d: Dictation, status: string | null): LensFram
 
 function dictLabel(it: Item): string {
   if (it.kind === 'send') return 'Send';
-  if (it.kind === 'redo') return 'Redo';
+  if (it.kind === 'redo') return 'Say it again';
   if (it.kind === 'cancel') return 'Cancel';
   return '';
 }

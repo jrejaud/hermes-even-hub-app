@@ -1,9 +1,13 @@
 /**
- * Aristo Lens: the whole app as a pure state machine (SC-9500).
+ * Aristo Lens: the whole app as a pure state machine (SC-9500, v2 SC-9703).
  *
  * The gateway (Aristo, on Chiba) owns every word, order and answer payload; this file only decides WHICH
  * screen is open, WHERE the cursor sits, and WHAT to send when a gesture lands. Nothing here interprets a
  * prompt or a view: a tap on an option echoes that option's `answer` payload verbatim.
+ *
+ * v2 (Jordan, 2026-11-12): voice is hold-to-talk only (right temple or ring), and the words stream in while
+ * you hold (the gateway relays Soniox partials); the session screen is the conversation, scrolled a page at
+ * a time, with its actions (Stop, Mark done, Set aside) behind a tap; hold on Home starts a new session.
  *
  * Gestures in, `{ state, effects }` out. The shell (app.ts) runs the effects: socket frames, the mic,
  * persisting the open screen, closing the app.
@@ -11,17 +15,19 @@
 import { GLASSES_VIEW_LIMIT } from '../gateway/glasses';
 import type {
   GlassesAsk,
-  GlassesClientFrame,
   GlassesHomeView,
   GlassesKey,
   GlassesOpen,
   GlassesRow,
   GlassesServerFrame,
 } from '../gateway/glasses';
+import type { ClientFrame, ServerFrame } from '../gateway/glasses-v2';
+import { conversationLines, scrollAnchor } from './conversation';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
 export type BannerFrame = Extract<GlassesServerFrame, { t: 'banner' }>;
+type Reply = Extract<ServerFrame, { t: 'ok' } | { t: 'refused' }>;
 
 /** Connection as the lens reports it in the header's live-status slot. */
 export type Conn = 'unconfigured' | 'connecting' | 'online' | 'reconnecting';
@@ -30,21 +36,30 @@ export type Screen =
   | { kind: 'home' }
   | { kind: 'view'; viewId: string; name: string }
   | { kind: 'session'; key: GlassesKey; title: string }
+  /** The session's actions, opened by a tap on its conversation. */
+  | { kind: 'menu'; key: GlassesKey; title: string }
   | Dictation;
 
 /**
- * Dictate, then confirm (flow screen 6). `via` records HOW it started, because the gesture that ends
- * listening differs: a hold ends on release, a tapped "Talk to it" row ends on the next tap.
+ * Hold to talk, then confirm. `reply` talks to a session (a message, or a free-text answer to its ask);
+ * `create` starts a new session from what was said.
  */
 export interface Dictation {
   kind: 'dictate';
-  key: GlassesKey;
+  purpose: 'reply' | 'create';
+  /** The session it talks to; null for `create`. */
+  key: GlassesKey | null;
   title: string;
-  via: 'hold' | 'tap';
-  phase: 'listening' | 'transcribing' | 'confirm' | 'empty' | 'sending' | 'failed';
+  phase: 'listening' | 'finishing' | 'confirm' | 'empty' | 'sending' | 'failed';
+  /** Settled words so far (live while listening, the final transcript after). */
   text: string;
-  /** Why the last stt/send failed, shown on the `failed` phase. */
+  /** The not-yet-final tail Soniox is still deciding on, shown after `text` while listening. */
+  interim: string;
   error: string | null;
+  /** The reqId of the speech stream (`listen` / `audio` / `listen.end` all carry it). */
+  listenId: string;
+  /** When the hold started (ms epoch): the timer in the header, the short-hold and 60 s rules. */
+  startedAt: number;
 }
 
 export interface Banner extends BannerFrame {
@@ -57,6 +72,10 @@ export const BANNER_MS = 10_000;
 export const PAGE_AHEAD = 3;
 /** How long a refused answer's reason stays in the header. */
 export const NOTICE_MS = 4_000;
+/** A hold shorter than this is an accidental press: nothing is recorded. */
+export const SHORT_HOLD_MS = 600;
+/** Longest recording; at the cap it behaves as if you let go. */
+export const MAX_LISTEN_MS = 60_000;
 
 export interface State {
   conn: Conn;
@@ -79,14 +98,15 @@ export interface State {
   seq: number;
   /** Rows asked for per view, when more than the gateway's default page (GLASSES_VIEW_LIMIT) was paged in. */
   limits: Record<string, number>;
+  /** Conversation scroll per session: null/absent = follow the newest, a number = the pinned top line. */
+  anchors: Record<string, number | null>;
 }
 
 export type Effect =
-  | { kind: 'send'; frame: GlassesClientFrame }
-  | { kind: 'micStart' }
+  | { kind: 'send'; frame: ClientFrame }
+  /** Open the mic and stream its audio as `audio` frames for this listen. */
+  | { kind: 'micStart'; reqId: string }
   | { kind: 'micStop' }
-  /** Stop the mic and ship what it heard as one `stt` request with this reqId. */
-  | { kind: 'transcribe'; reqId: string }
   | { kind: 'persist' }
   | { kind: 'exit' };
 
@@ -107,6 +127,7 @@ export function initialState(conn: Conn = 'connecting'): State {
     answered: [],
     seq: 1,
     limits: {},
+    anchors: {},
   };
 }
 
@@ -117,10 +138,11 @@ export function screenId(sc: Screen): string {
   if (sc.kind === 'home') return 'home';
   if (sc.kind === 'view') return `view:${sc.viewId}`;
   if (sc.kind === 'session') return `session:${sc.key}`;
-  return `dictate:${sc.key}`;
+  if (sc.kind === 'menu') return `menu:${sc.key}`;
+  return `dictate:${sc.key ?? 'new'}`;
 }
 
-/** What the gateway must be told is open. A dictation keeps its session open underneath. */
+/** What the gateway must be told is open. A menu or a dictation keeps its session open underneath. */
 export function openFor(s: State): GlassesOpen {
   for (let i = s.stack.length - 1; i >= 0; i--) {
     const sc = s.stack[i];
@@ -129,7 +151,7 @@ export function openFor(s: State): GlassesOpen {
       const limit = s.limits[sc.viewId];
       return limit ? { screen: 'view', viewId: sc.viewId, limit } : { screen: 'view', viewId: sc.viewId };
     }
-    if (sc.kind === 'session') return { screen: 'session', key: sc.key };
+    if (sc.kind === 'session' || sc.kind === 'menu') return { screen: 'session', key: sc.key };
   }
   return { screen: 'home' };
 }
@@ -145,8 +167,7 @@ export type Item =
   | { id: string; kind: 'view'; view: GlassesHomeView }
   | { id: string; kind: 'row'; row: GlassesRow }
   | { id: string; kind: 'option'; index: number }
-  | { id: string; kind: 'voice' }
-  | { id: string; kind: 'talk' }
+  | { id: string; kind: 'stop' }
   | { id: string; kind: 'done' }
   | { id: string; kind: 'close' }
   | { id: string; kind: 'send' }
@@ -164,7 +185,8 @@ export function viewFor(s: State, viewId: string): ViewFrame | null {
 }
 
 /** A pending ask the lens should still offer: hidden once we sent an answer for it. */
-export function liveAsk(s: State, key: GlassesKey): GlassesAsk | null {
+export function liveAsk(s: State, key: GlassesKey | null): GlassesAsk | null {
+  if (!key) return null;
   const ask = threadFor(s, key)?.ask ?? null;
   return ask && !s.answered.includes(ask.promptId) ? ask : null;
 }
@@ -177,15 +199,15 @@ export function items(s: State, sc: Screen = top(s)): Item[] {
     return v.sections.flatMap((sec) => sec.rows).map((row) => ({ id: row.key, kind: 'row', row }));
   }
   if (sc.kind === 'session') {
-    const t = threadFor(s, sc.key);
-    if (!t) return [];
+    // With an ask the options are the items; otherwise the screen is a conversation you scroll (no cursor).
     const ask = liveAsk(s, sc.key);
-    if (ask) {
-      const opts: Item[] = ask.options.map((_, index) => ({ id: `opt:${index}`, kind: 'option', index }));
-      return ask.freeText ? [...opts, { id: 'voice', kind: 'voice' }] : opts;
-    }
-    const acts: Item[] = [{ id: 'talk', kind: 'talk' }];
-    if (t.row.mark !== 'done') acts.push({ id: 'done', kind: 'done' });
+    return ask ? ask.options.map((_, index) => ({ id: `opt:${index}`, kind: 'option', index })) : [];
+  }
+  if (sc.kind === 'menu') {
+    const t = threadFor(s, sc.key);
+    const acts: Item[] = [];
+    if (t?.row.mark === 'working') acts.push({ id: 'stop', kind: 'stop' });
+    if (t?.row.mark !== 'done') acts.push({ id: 'done', kind: 'done' });
     acts.push({ id: 'close', kind: 'close' });
     return acts;
   }
@@ -248,10 +270,15 @@ function resetCursor(s: State, sc: Screen): State {
   return { ...s, cursor, cursorIndex };
 }
 
+/** The conversation's scroll anchor for a session (null = following the newest). */
+export function anchorFor(s: State, key: GlassesKey): number | null {
+  return s.anchors[key] ?? null;
+}
+
 // ------------------------------------------------------------------------------------------- frames in
 
 /** Fold one server frame into the state. Returns effects only for what the frame itself demands. */
-export function receive(s: State, f: GlassesServerFrame, now: number): { state: State; effects: Effect[] } {
+export function receive(s: State, f: ServerFrame, now: number): { state: State; effects: Effect[] } {
   switch (f.t) {
     case 'hello':
       // A (re)connect: say which screen is open; the server answers with its frame.
@@ -268,9 +295,17 @@ export function receive(s: State, f: GlassesServerFrame, now: number): { state: 
     case 'banner': {
       // Never banner the session already on screen, nor an ask we just answered.
       const sc = top(s);
-      if ((sc.kind === 'session' || sc.kind === 'dictate') && sc.key === f.key) return { state: s, effects: [] };
+      if ((sc.kind === 'session' || sc.kind === 'menu' || sc.kind === 'dictate') && sc.key === f.key)
+        return { state: s, effects: [] };
       if (s.answered.includes(f.promptId)) return { state: s, effects: [] };
       return { state: { ...s, banner: { ...f, at: now }, bannerCursor: 0 }, effects: [] };
+    }
+    case 'partial': {
+      // Live words for the stream that is on screen; anything else is stale.
+      const sc = top(s);
+      if (sc.kind !== 'dictate' || sc.listenId !== f.reqId) return { state: s, effects: [] };
+      if (sc.phase !== 'listening' && sc.phase !== 'finishing') return { state: s, effects: [] };
+      return { state: replaceTop(s, { ...sc, text: f.final, interim: f.interim }), effects: [] };
     }
     case 'pong':
     case 'ok':
@@ -292,25 +327,47 @@ function pruneAnswered(answered: string[], v: ViewFrame): string[] {
 }
 
 /** A request came back. `pending` names what it was, which app.ts remembers by reqId. */
-export type Pending = { kind: 'answer'; promptId: string } | { kind: 'say' } | { kind: 'patch' } | { kind: 'stt' };
+export type Pending =
+  | { kind: 'answer'; promptId: string }
+  | { kind: 'say' }
+  | { kind: 'patch' }
+  | { kind: 'listen' }
+  | { kind: 'create' }
+  | { kind: 'interrupt' };
 
-export function reply(
-  s: State,
-  pending: Pending,
-  f: Extract<GlassesServerFrame, { t: 'ok' } | { t: 'refused' }>,
-  now: number,
-): { state: State; effects: Effect[] } {
+export function reply(s: State, pending: Pending, f: Reply, now: number): { state: State; effects: Effect[] } {
   const sc = top(s);
-  if (pending.kind === 'stt') {
-    if (sc.kind !== 'dictate' || sc.phase !== 'transcribing') return { state: s, effects: [] };
-    if (f.t === 'refused')
-      return { state: replaceTop(s, { ...sc, phase: 'failed', error: f.message || f.reason }), effects: [] };
-    const text = (f.text ?? '').trim();
+  const notice = (st: State, text: string): State => ({ ...st, notice: { text, until: now + NOTICE_MS } });
+
+  if (pending.kind === 'listen') {
+    if (sc.kind !== 'dictate' || sc.listenId !== f.reqId) return { state: s, effects: [] };
+    if (f.t === 'refused') {
+      // The stream failed (Soniox down, out of funds, …): stop listening and say why.
+      const failed: Dictation = { ...sc, phase: 'failed', interim: '', error: f.message || f.reason };
+      return { state: resetCursor(replaceTop(s, failed), failed), effects: [{ kind: 'micStop' }] };
+    }
+    if (sc.phase !== 'finishing') return { state: s, effects: [] };
+    const text = (f.text ?? sc.text).trim();
     const next: Dictation = text
-      ? { ...sc, phase: 'confirm', text, error: null }
-      : { ...sc, phase: 'empty', text: '', error: null };
+      ? { ...sc, phase: 'confirm', text, interim: '', error: null }
+      : { ...sc, phase: 'empty', text: '', interim: '', error: null };
     return { state: resetCursor(replaceTop(s, next), next), effects: [] };
   }
+
+  if (pending.kind === 'create') {
+    if (f.t === 'refused') {
+      if (sc.kind === 'dictate' && sc.phase === 'sending')
+        return { state: replaceTop(s, { ...sc, phase: 'failed', error: refusedText(f) }), effects: [] };
+      return { state: notice(s, refusedText(f)), effects: [] };
+    }
+    // Open the new session in place of the dictation.
+    const key = f.t === 'ok' ? f.key : undefined;
+    let next = sc.kind === 'dictate' ? pop(s) : s;
+    if (key)
+      next = push(next, { kind: 'session', key, title: sc.kind === 'dictate' ? sc.text.slice(0, 60) : 'New session' });
+    return { state: next, effects: navEffects(next) };
+  }
+
   // A refused answer un-hides its ask, wherever it was sent from. `gone` = answered elsewhere, common and fine.
   const base =
     pending.kind === 'answer' && f.t === 'refused'
@@ -322,16 +379,11 @@ export function reply(
       return { state: replaceTop(base, { ...sc, phase: 'failed', error: refusedText(f) }), effects: [] };
     return { state: pop(base), effects: [{ kind: 'persist' }] };
   }
-  if (pending.kind === 'answer') {
-    if (f.t === 'ok') return { state: s, effects: [] };
-    return { state: { ...base, notice: { text: refusedText(f), until: now + NOTICE_MS } }, effects: [] };
-  }
-  if (f.t === 'refused')
-    return { state: { ...s, notice: { text: refusedText(f), until: now + NOTICE_MS } }, effects: [] };
+  if (f.t === 'refused') return { state: notice(base, refusedText(f)), effects: [] };
   return { state: s, effects: [] };
 }
 
-function refusedText(f: Extract<GlassesServerFrame, { t: 'refused' }>): string {
+function refusedText(f: Extract<ServerFrame, { t: 'refused' }>): string {
   if (f.reason === 'gone') return 'already answered';
   if (f.reason === 'changed') return 'the ask changed';
   if (f.reason === 'host-down') return 'its host is down';
@@ -368,21 +420,30 @@ export interface GestureResult {
   pending: Record<string, Pending>;
 }
 
+const none = (state: State): GestureResult => ({ state, effects: [], pending: {} });
+
 /**
  * Apply one gesture. `drawn` is the state the lens is SHOWING (the last one drawn): a tap resolves against
  * its items, because the live state may have reordered underneath the wearer's finger.
  */
 export function gesture(live: State, g: Gesture, now: number, drawn: State = live): GestureResult {
-  const none = (state: State): GestureResult => ({ state, effects: [], pending: {} });
   let s = expire(live, now);
 
   if (s.banner) return bannerGesture(s, g);
 
   const sc = top(s);
 
-  if (sc.kind === 'dictate') return dictateGesture(s, sc, g, drawn);
+  if (sc.kind === 'dictate') return dictateGesture(s, sc, g, now, drawn);
+  if (sc.kind === 'menu') return menuGesture(s, sc, g, drawn);
 
   if (g === 'up' || g === 'down') {
+    // The conversation scrolls a page; any other screen moves the cursor.
+    if (sc.kind === 'session' && !liveAsk(s, sc.key)) {
+      const t = threadFor(s, sc.key);
+      if (!t) return none(s);
+      const anchor = scrollAnchor(conversationLines(t.lines), anchorFor(s, sc.key), g);
+      return none({ ...s, anchors: { ...s.anchors, [sc.key]: anchor } });
+    }
     const list = items(s, sc);
     if (!list.length) return none(s);
     const at = cursorIndex(s, sc);
@@ -406,10 +467,15 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
     return { state: s, effects: navEffects(s), pending: {} };
   }
 
-  if (g === 'hold') return holdToTalk(s, sc, drawn);
+  if (g === 'hold') return holdToTalk(s, sc, now, drawn);
   if (g === 'release') return none(s);
 
-  // tap: resolve against what was drawn
+  // tap
+  if (sc.kind === 'session' && !liveAsk(drawn, sc.key)) {
+    // The conversation's actions live behind a tap.
+    const menu: Screen = { kind: 'menu', key: sc.key, title: sc.title };
+    return none(resetCursor(push(s, menu), menu));
+  }
   const shown = items(drawn, sc);
   const at = cursorIndex(drawn, sc);
   const it = shown[at];
@@ -424,117 +490,180 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
     s = push(s, { kind: 'session', key: it.row.key, title: it.row.title });
     return { state: s, effects: navEffects(s), pending: {} };
   }
-  if (sc.kind !== 'session') return none(s);
+  if (sc.kind !== 'session' || it.kind !== 'option') return none(s);
 
-  if (it.kind === 'option') {
-    const ask = liveAsk(drawn, sc.key);
-    const opt = ask?.options[it.index];
-    if (!ask || !opt) return none(s);
-    const r = nextReq(s);
-    s = { ...r.s, answered: [...r.s.answered, ask.promptId] };
-    // Answered: back to the list, cursor on top, where the next waiting session already is.
-    s = pop(s);
-    s = resetCursor(s, top(s));
+  const ask = liveAsk(drawn, sc.key);
+  const opt = ask?.options[it.index];
+  if (!ask || !opt) return none(s);
+  const r = nextReq(s);
+  s = { ...r.s, answered: [...r.s.answered, ask.promptId] };
+  // Answered: back to the list, cursor on top, where the next waiting session already is.
+  s = pop(s);
+  s = resetCursor(s, top(s));
+  return {
+    state: s,
+    effects: [
+      { kind: 'send', frame: { t: 'answer', reqId: r.reqId, key: sc.key, answer: opt.answer } },
+      ...navEffects(s),
+    ],
+    pending: { [r.reqId]: { kind: 'answer', promptId: ask.promptId } },
+  };
+}
+
+function menuGesture(s: State, m: Extract<Screen, { kind: 'menu' }>, g: Gesture, drawn: State): GestureResult {
+  if (g === 'up' || g === 'down') return none(setCursor(s, m, cursorIndex(s, m) + (g === 'down' ? 1 : -1)));
+  if (g === 'double') return none(pop(s));
+  if (g !== 'tap') return none(s);
+  const it = items(drawn, m)[cursorIndex(drawn, m)];
+  if (!it) return none(s);
+  const r = nextReq(s);
+  if (it.kind === 'stop') {
+    // Stop keeps you on the conversation: you watch it stop.
+    const next = pop(r.s);
     return {
-      state: s,
-      effects: [
-        { kind: 'send', frame: { t: 'answer', reqId: r.reqId, key: sc.key, answer: opt.answer } },
-        ...navEffects(s),
-      ],
-      pending: { [r.reqId]: { kind: 'answer', promptId: ask.promptId } },
+      state: next,
+      effects: [{ kind: 'send', frame: { t: 'interrupt', reqId: r.reqId, key: m.key } }],
+      pending: { [r.reqId]: { kind: 'interrupt' } },
     };
   }
-  if (it.kind === 'voice' || it.kind === 'talk') return startDictation(s, sc.key, sc.title, 'tap');
   if (it.kind === 'done' || it.kind === 'close') {
-    const r = nextReq(s);
-    s = pop(r.s);
-    const frame: GlassesClientFrame =
+    // Done or set aside: back past the session to the list.
+    const next = pop(pop(r.s));
+    const frame: ClientFrame =
       it.kind === 'done'
-        ? { t: 'patch', reqId: r.reqId, key: sc.key, done: true }
-        : { t: 'patch', reqId: r.reqId, key: sc.key, closed: true };
+        ? { t: 'patch', reqId: r.reqId, key: m.key, done: true }
+        : { t: 'patch', reqId: r.reqId, key: m.key, closed: true };
     return {
-      state: s,
-      effects: [{ kind: 'send', frame }, ...navEffects(s)],
+      state: next,
+      effects: [{ kind: 'send', frame }, ...navEffects(next)],
       pending: { [r.reqId]: { kind: 'patch' } },
     };
   }
   return none(s);
 }
 
-function startDictation(s: State, key: GlassesKey, title: string, via: 'hold' | 'tap'): GestureResult {
-  const d: Dictation = { kind: 'dictate', key, title, via, phase: 'listening', text: '', error: null };
-  return { state: resetCursor(push(s, d), d), effects: [{ kind: 'micStart' }], pending: {} };
+function listen(
+  s: State,
+  d: Omit<Dictation, 'listenId' | 'startedAt' | 'phase' | 'text' | 'interim' | 'error'>,
+  now: number,
+): GestureResult {
+  const r = nextReq(s);
+  const dict: Dictation = {
+    ...d,
+    phase: 'listening',
+    text: '',
+    interim: '',
+    error: null,
+    listenId: r.reqId,
+    startedAt: now,
+  };
+  return {
+    state: resetCursor(push(r.s, dict), dict),
+    effects: [
+      { kind: 'send', frame: { t: 'listen', reqId: r.reqId, lang: ['en', 'ja'] } },
+      { kind: 'micStart', reqId: r.reqId },
+    ],
+    pending: { [r.reqId]: { kind: 'listen' } },
+  };
 }
 
-/** Hold talks to the highlighted session (a list row) or the open one. */
-function holdToTalk(s: State, sc: Screen, drawn: State): GestureResult {
+/** Hold talks: on Home it starts a new session, on a list row or the open session it talks to that session. */
+function holdToTalk(s: State, sc: Screen, now: number, drawn: State): GestureResult {
+  // Speech needs the gateway: offline (or not set up) a hold does nothing rather than open a dead mic.
+  if (s.conn !== 'online') return none(s);
+  if (sc.kind === 'home')
+    return listen(s, { kind: 'dictate', purpose: 'create', key: null, title: 'New session' }, now);
   if (sc.kind === 'session') {
     const ask = liveAsk(s, sc.key);
     // A permission or a question that takes no free text can only be answered by tapping an option.
-    // (No notice: a gesture word in the header is a hint, rule 5; the screen already says how it is answered.)
-    if (ask && !ask.freeText) return { state: s, effects: [], pending: {} };
-    return startDictation(s, sc.key, sc.title, 'hold');
+    if (ask && !ask.freeText) return none(s);
+    return listen(s, { kind: 'dictate', purpose: 'reply', key: sc.key, title: sc.title }, now);
   }
   if (sc.kind === 'view') {
     const it = items(drawn, sc)[cursorIndex(drawn, sc)];
-    if (it?.kind !== 'row') return { state: s, effects: [], pending: {} };
+    if (it?.kind !== 'row') return none(s);
     // Open the session underneath, so the confirm screen knows whether it answers an ask or sends a message.
     const opened = push(s, { kind: 'session', key: it.row.key, title: it.row.title });
-    const r = startDictation(opened, it.row.key, it.row.title, 'hold');
+    const r = listen(opened, { kind: 'dictate', purpose: 'reply', key: it.row.key, title: it.row.title }, now);
     return {
       ...r,
       effects: [{ kind: 'send', frame: { t: 'open', screen: 'session', key: it.row.key } }, ...r.effects],
     };
   }
-  return { state: s, effects: [], pending: {} };
+  return none(s);
 }
 
 /**
- * What Send will do, decided from the session's live ask. The lens never reads the words: a dictated
- * answer to an ask goes as `answer {text}` only when the gateway said the ask takes free text, and on a
- * permission that is never an approval (Aristo sends free text on a permission as "No, and say why"),
- * which is what makes an ambiguous spoken "yes" a deny. Anything else is a plain message (`say`).
+ * What Send will do. A new session is `create`. Otherwise it is decided from the session's live ask; the
+ * lens never reads the words: a dictated answer to an ask goes as `answer {text}` only when the gateway said
+ * the ask takes free text, and on a permission that is never an approval (Aristo sends free text on a
+ * permission as "No, and say why"), which is what makes an ambiguous spoken "yes" a deny. Anything else is
+ * a plain message (`say`).
  */
-export function sendTarget(s: State, d: Dictation): { kind: 'answer'; ask: GlassesAsk } | { kind: 'say' } {
+export function sendTarget(
+  s: State,
+  d: Dictation,
+): { kind: 'create' } | { kind: 'answer'; ask: GlassesAsk } | { kind: 'say' } {
+  if (d.purpose === 'create') return { kind: 'create' };
   const ask = liveAsk(s, d.key);
   return ask && ask.freeText ? { kind: 'answer', ask } : { kind: 'say' };
 }
 
-function dictateGesture(s: State, d: Dictation, g: Gesture, drawn: State): GestureResult {
-  const none = (state: State): GestureResult => ({ state, effects: [], pending: {} });
+/** Stop recording: a short hold is discarded, anything else is finished and transcribed. */
+function endListen(s: State, d: Dictation, now: number): GestureResult {
+  if (now - d.startedAt < SHORT_HOLD_MS) {
+    return {
+      state: pop(s),
+      effects: [{ kind: 'micStop' }, { kind: 'send', frame: { t: 'listen.cancel', reqId: d.listenId } }],
+      pending: {},
+    };
+  }
+  return {
+    state: replaceTop(s, { ...d, phase: 'finishing' }),
+    effects: [{ kind: 'micStop' }, { kind: 'send', frame: { t: 'listen.end', reqId: d.listenId } }],
+    pending: {},
+  };
+}
 
+function cancelListen(s: State, d: Dictation): GestureResult {
+  return {
+    state: pop(s),
+    effects: [{ kind: 'micStop' }, { kind: 'send', frame: { t: 'listen.cancel', reqId: d.listenId } }],
+    pending: {},
+  };
+}
+
+function dictateGesture(s: State, d: Dictation, g: Gesture, now: number, drawn: State): GestureResult {
   if (d.phase === 'listening') {
-    const ends = (d.via === 'hold' && g === 'release') || (d.via === 'tap' && g === 'tap');
-    if (ends) {
-      const r = nextReq(s);
-      return {
-        state: replaceTop(r.s, { ...d, phase: 'transcribing' }),
-        effects: [{ kind: 'transcribe', reqId: r.reqId }],
-        pending: { [r.reqId]: { kind: 'stt' } },
-      };
-    }
-    if (g === 'double') return { state: pop(s), effects: [{ kind: 'micStop' }], pending: {} };
+    // Release ends it; a tap ends it too (the glasses sometimes lose the release); double tap discards.
+    if (g === 'release' || g === 'tap') return endListen(s, d, now);
+    if (g === 'double') return cancelListen(s, d);
     return none(s);
   }
-
-  if (d.phase === 'transcribing' || d.phase === 'sending') {
-    return g === 'double' ? none(pop(s)) : none(s);
-  }
+  if (d.phase === 'finishing') return g === 'double' ? cancelListen(s, d) : none(s);
+  if (d.phase === 'sending') return g === 'double' ? none(pop(s)) : none(s);
 
   if (g === 'up' || g === 'down') return none(setCursor(s, d, cursorIndex(s, d) + (g === 'down' ? 1 : -1)));
   if (g === 'double') return none(pop(s));
-  if (g === 'hold') return redo(s, d, 'hold');
+  if (g === 'hold') return redo(s, d, now);
   if (g !== 'tap') return none(s);
 
   const it = items(drawn, d)[cursorIndex(drawn, d)];
   if (!it) return none(s);
   if (it.kind === 'cancel') return none(pop(s));
-  if (it.kind === 'redo') return redo(s, d, 'tap');
+  if (it.kind === 'redo') return redo(s, d, now);
   if (it.kind !== 'send') return none(s);
 
   const target = sendTarget(s, d);
   const r = nextReq(s);
   const sending = replaceTop(r.s, { ...d, phase: 'sending' });
+  if (target.kind === 'create') {
+    return {
+      state: sending,
+      effects: [{ kind: 'send', frame: { t: 'create', reqId: r.reqId, text: d.text } }],
+      pending: { [r.reqId]: { kind: 'create' } },
+    };
+  }
   if (target.kind === 'answer') {
     const answered = { ...sending, answered: [...sending.answered, target.ask.promptId] };
     return {
@@ -542,7 +671,7 @@ function dictateGesture(s: State, d: Dictation, g: Gesture, drawn: State): Gestu
       effects: [
         {
           kind: 'send',
-          frame: { t: 'answer', reqId: r.reqId, key: d.key, promptId: target.ask.promptId, text: d.text },
+          frame: { t: 'answer', reqId: r.reqId, key: d.key!, promptId: target.ask.promptId, text: d.text },
         },
       ],
       pending: { [r.reqId]: { kind: 'answer', promptId: target.ask.promptId } },
@@ -550,30 +679,26 @@ function dictateGesture(s: State, d: Dictation, g: Gesture, drawn: State): Gestu
   }
   return {
     state: sending,
-    effects: [{ kind: 'send', frame: { t: 'say', reqId: r.reqId, key: d.key, text: d.text } }],
+    effects: [{ kind: 'send', frame: { t: 'say', reqId: r.reqId, key: d.key!, text: d.text } }],
     pending: { [r.reqId]: { kind: 'say' } },
   };
 }
 
-function redo(s: State, d: Dictation, via: 'hold' | 'tap'): GestureResult {
-  return {
-    state: replaceTop(s, { ...d, via, phase: 'listening', text: '', error: null }),
-    effects: [{ kind: 'micStart' }],
-    pending: {},
-  };
+/** Record again from the confirm/empty/failed screen. */
+function redo(s: State, d: Dictation, now: number): GestureResult {
+  const back = pop(s);
+  return listen(back, { kind: 'dictate', purpose: d.purpose, key: d.key, title: d.title }, now);
 }
 
 function bannerGesture(s: State, g: Gesture): GestureResult {
   const b = s.banner!;
-  if (g === 'up' || g === 'down')
-    return { state: { ...s, bannerCursor: g === 'down' ? 1 : 0 }, effects: [], pending: {} };
-  if (g === 'double' || (g === 'tap' && s.bannerCursor === 1))
-    return { state: { ...s, banner: null }, effects: [], pending: {} };
-  if (g !== 'tap') return { state: s, effects: [], pending: {} };
+  if (g === 'up' || g === 'down') return none({ ...s, bannerCursor: g === 'down' ? 1 : 0 });
+  if (g === 'double' || (g === 'tap' && s.bannerCursor === 1)) return none({ ...s, banner: null });
+  if (g !== 'tap') return none(s);
   // Answer now: open that session on top of wherever we are; double tap comes back here.
   let next: State = { ...s, banner: null };
   const sc = top(next);
-  if (sc.kind === 'dictate') next = pop(next);
+  if (sc.kind === 'dictate' || sc.kind === 'menu') next = pop(next);
   next = push(next, { kind: 'session', key: b.key, title: b.title });
   return { state: next, effects: navEffects(next), pending: {} };
 }
@@ -586,16 +711,19 @@ export function expire(s: State, now: number): State {
   return out;
 }
 
-/** Called when the mic stopped on its own (60 s cap, error) while listening: treat it as the end gesture. */
-export function micEnded(s: State): GestureResult {
+/**
+ * Called by the shell's clock while listening: at the 60 s cap, or when the mic stopped on its own, it ends
+ * as if you let go.
+ */
+export function micEnded(s: State, now: number): GestureResult {
   const sc = top(s);
-  if (sc.kind !== 'dictate' || sc.phase !== 'listening') return { state: s, effects: [], pending: {} };
-  return dictateGesture(s, sc, sc.via === 'hold' ? 'release' : 'tap', s);
+  if (sc.kind !== 'dictate' || sc.phase !== 'listening') return none(s);
+  return endListen(s, sc, Math.max(now, sc.startedAt + SHORT_HOLD_MS));
 }
 
 // ------------------------------------------------------------------------------------------- resume
 
-/** What survives a cold start: the navigable screens (never a dictation) and the Inbox count at the time. */
+/** What survives a cold start: the navigable screens (never a dictation or a menu) and the Inbox count. */
 export interface Saved {
   stack: Screen[];
   inboxNeeds: number;
@@ -603,7 +731,7 @@ export interface Saved {
 }
 
 export function toSaved(s: State, now: number): Saved {
-  const stack = s.stack.filter((sc) => sc.kind !== 'dictate');
+  const stack = s.stack.filter((sc) => sc.kind !== 'dictate' && sc.kind !== 'menu');
   return { stack, inboxNeeds: s.home?.[0]?.needs ?? 0, at: now };
 }
 

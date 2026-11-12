@@ -6,7 +6,7 @@
  */
 import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
 import { GatewayClient, type GatewayProfile, type SocketLike } from '../gateway/client';
-import type { GlassesServerFrame } from '../gateway/glasses';
+import type { ServerFrame } from '../gateway/glasses-v2';
 import { serializeLatest } from '../util/coalesce';
 import { Lens } from './draw';
 import { toInput } from './input';
@@ -18,6 +18,7 @@ import {
   gesture,
   initialState,
   landing,
+  MAX_LISTEN_MS,
   micEnded,
   receive,
   reply,
@@ -29,8 +30,8 @@ import {
   type State,
 } from './state';
 
-/** The stt frame carries at most 60 s of 16 kHz mono s16le. */
-const MAX_PCM_BYTES = 60 * 16_000 * 2;
+/** ~200 ms of 16 kHz mono s16le per `audio` frame. */
+const CHUNK_BYTES = (16_000 * 2) / 5;
 const TICK_MS = 1_000;
 const LANDING_WINDOW_MS = 6_000;
 
@@ -82,46 +83,46 @@ export async function startApp(d: AppDeps): Promise<void> {
     if (connChanged) phone();
   };
 
-  // ---- mic
-  let recording = false;
-  let chunks: Uint8Array[] = [];
-  let pcmBytes = 0;
+  // ---- mic: stream while held (v2). Audio goes out as ~200 ms `audio` frames for the current listen.
+  let listenId: string | null = null;
+  let buf: Uint8Array[] = [];
+  let bufBytes = 0;
 
-  async function micStart(): Promise<void> {
-    chunks = [];
-    pcmBytes = 0;
-    recording = true;
+  function flushAudio(): void {
+    if (!listenId || !bufBytes) return;
+    const out = new Uint8Array(bufBytes);
+    let at = 0;
+    for (const c of buf) {
+      out.set(c, at);
+      at += c.length;
+    }
+    buf = [];
+    bufBytes = 0;
+    client.send({ t: 'audio', reqId: listenId, pcm: toBase64(out) });
+  }
+
+  async function micStart(reqId: string): Promise<void> {
+    listenId = reqId;
+    buf = [];
+    bufBytes = 0;
     const ok = await bridge.audioControl(true);
     if (!ok) console.error('[lens] audioControl(true) refused');
   }
 
-  async function micStop(): Promise<Uint8Array> {
-    if (recording) {
-      recording = false;
-      const ok = await bridge.audioControl(false);
-      if (!ok) console.error('[lens] audioControl(false) refused');
-    }
-    const out = new Uint8Array(pcmBytes);
-    let at = 0;
-    for (const c of chunks) {
-      out.set(c, at);
-      at += c.length;
-    }
-    chunks = [];
-    pcmBytes = 0;
-    return out;
+  async function micStop(): Promise<void> {
+    if (!listenId) return;
+    // Send what is buffered BEFORE the state machine's listen.end/cancel goes out (effects run in order).
+    flushAudio();
+    listenId = null;
+    const ok = await bridge.audioControl(false);
+    if (!ok) console.error('[lens] audioControl(false) refused');
   }
 
   function onPcm(pcm: Uint8Array): void {
-    if (!recording) return;
-    if (pcmBytes + pcm.length > MAX_PCM_BYTES) {
-      const r = micEnded(state);
-      remember(r.pending);
-      set(r.state, r.effects);
-      return;
-    }
-    chunks.push(pcm);
-    pcmBytes += pcm.length;
+    if (!listenId) return;
+    buf.push(pcm);
+    bufBytes += pcm.length;
+    if (bufBytes >= CHUNK_BYTES) flushAudio();
   }
 
   // ---- effects
@@ -136,19 +137,9 @@ export async function startApp(d: AppDeps): Promise<void> {
         const reqId = e.frame.reqId;
         queueMicrotask(() => onFrame({ t: 'refused', reqId, reason: 'host-down', message: 'offline' }));
       }
-    } else if (e.kind === 'micStart') void micStart();
+    } else if (e.kind === 'micStart') void micStart(e.reqId);
     else if (e.kind === 'micStop') void micStop();
-    else if (e.kind === 'transcribe') {
-      const reqId = e.reqId;
-      void micStop().then((pcm) => {
-        if (!pcm.length) {
-          onFrame({ t: 'ok', reqId, text: '' });
-          return;
-        }
-        if (!client.send({ t: 'stt', reqId, pcm: toBase64(pcm) }))
-          onFrame({ t: 'refused', reqId, reason: 'host-down', message: 'offline' });
-      });
-    } else if (e.kind === 'persist') {
+    else if (e.kind === 'persist') {
       void save(bridge, toSaved(state, now())).catch((err: unknown) =>
         console.error('[lens] could not save location', err),
       );
@@ -158,7 +149,7 @@ export async function startApp(d: AppDeps): Promise<void> {
   }
 
   // ---- gateway
-  function onFrame(f: GlassesServerFrame): void {
+  function onFrame(f: ServerFrame): void {
     if (f.t === 'ok' || f.t === 'refused') {
       const p = pending.get(f.reqId);
       if (!p) return;
@@ -236,8 +227,19 @@ export async function startApp(d: AppDeps): Promise<void> {
   });
 
   setInterval(() => {
+    const t = now();
+    const sc = state.stack[state.stack.length - 1];
+    if (sc.kind === 'dictate' && sc.phase === 'listening') {
+      // The 60 s cap ends the recording as if the wearer let go; otherwise redraw so the timer counts up.
+      if (t - sc.startedAt >= MAX_LISTEN_MS) {
+        const r = micEnded(state, t);
+        remember(r.pending);
+        set(r.state, r.effects);
+      } else paint(state);
+      return;
+    }
     if (!state.banner && !state.notice) return;
-    const next = expire(state, now());
+    const next = expire(state, t);
     if (next !== state) set(next);
   }, TICK_MS);
 

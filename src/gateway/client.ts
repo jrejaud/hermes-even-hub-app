@@ -5,7 +5,8 @@
  * open with `open()` and it re-sends that after every reconnect (the server's `hello` triggers the app to do
  * so via the state machine), and forwards every server frame to `onFrame`.
  */
-import { GLASSES_PATH, type GlassesClientFrame, type GlassesServerFrame } from './glasses';
+import { GLASSES_PATH } from './glasses';
+import type { ClientFrame, ServerFrame } from './glasses-v2';
 
 export interface GatewayProfile {
   /** Base URL of the views home, e.g. `wss://agent.alastor.space`. */
@@ -23,7 +24,7 @@ export type SocketLike = Pick<WebSocket, 'send' | 'close' | 'readyState'> & {
 interface Deps {
   /** Socket factory; tests and the fake gateway pass their own. */
   connect?: (url: string) => SocketLike;
-  onFrame: (f: GlassesServerFrame) => void;
+  onFrame: (f: ServerFrame) => void;
   onStatus: (s: 'connecting' | 'online' | 'reconnecting') => void;
 }
 
@@ -77,7 +78,7 @@ export class GatewayClient {
     this.start(this.profile);
   }
 
-  send(f: GlassesClientFrame): boolean {
+  send(f: ClientFrame): boolean {
     if (!this.ws || this.ws.readyState !== 1) return false;
     this.ws.send(JSON.stringify(f));
     return true;
@@ -111,9 +112,9 @@ export class GatewayClient {
     };
     ws.onmessage = (ev) => {
       this.lastRecv = Date.now();
-      let frame: GlassesServerFrame;
+      let frame: ServerFrame;
       try {
-        frame = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data)) as GlassesServerFrame;
+        frame = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data)) as ServerFrame;
       } catch (err) {
         console.error('[gateway] malformed frame', err);
         return;

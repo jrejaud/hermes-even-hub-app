@@ -1,7 +1,7 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk';
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk';
 import './style.css';
-import { LENS_FRAMES } from './dev/lens-gallery';
+import { GALLERY_NOW, LENS_FRAMES } from './dev/lens-gallery';
 import { FakeGateway } from './dev/fake-gateway';
 import { lensGateUrl } from './dev/lens-gate-client';
 import { runGateGallery } from './dev/lens-gate-app';
@@ -22,7 +22,7 @@ async function runGallery(bridge: EvenAppBridge): Promise<void> {
   const draw = (): void => {
     const f = LENS_FRAMES[i];
     busy = busy.then(async () => {
-      await lens.draw(layout(f.state));
+      await lens.draw(layout(f.state, GALLERY_NOW));
       console.log(`[gallery] ${i + 1}/${LENS_FRAMES.length} ${f.name} — ${f.looking_for}`);
     });
   };

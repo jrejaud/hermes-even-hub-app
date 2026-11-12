@@ -6,8 +6,8 @@
  *
  *   VITE_UI_GALLERY=1 npm run dev  +  npm run sim  +  npm run ui:capture
  */
-import type { GlassesServerFrame } from '../gateway/glasses';
-import { gesture, initialState, receive, type Gesture, type State } from '../lens/state';
+import type { ServerFrame as GlassesServerFrame } from '../gateway/glasses-v2';
+import { gesture, initialState, receive, reply, type Gesture, type State } from '../lens/state';
 import { HOME, ROWS, row, threadFrame, viewFrame } from './fake-gateway';
 
 export interface GalleryFrame {
@@ -17,6 +17,8 @@ export interface GalleryFrame {
 }
 
 const T = 1_700_000_000_000;
+/** The clock the gallery is drawn at: 4 s into a hold, so the listening timer reads a stable "● 4s". */
+export const GALLERY_NOW = T + 4_000;
 
 function feed(s: State, ...frames: GlassesServerFrame[]): State {
   return frames.reduce((acc, f) => receive(acc, f, T).state, s);
@@ -35,11 +37,45 @@ const openRow = (i: number): State => {
   s = press(s, 'tap');
   return feed(s, threadFrame(ROWS[i].key));
 };
+/** Hold to talk on `s`; returns the listening state and the listen's reqId. */
+const hold = (s: State): { s: State; id: string } => {
+  const r = gesture(s, 'hold', T);
+  return { s: r.state, id: Object.keys(r.pending)[0] };
+};
+/** Live words arriving while held, as the gateway relays Soniox. */
+const hearing = (s: State, final: string, interim: string): State => {
+  const h = hold(s);
+  return receive(h.s, { t: 'partial', reqId: h.id, final, interim }, T).state;
+};
+/** Let go after a real utterance, and the gateway's final transcript comes back. */
 const withTranscript = (s: State, text: string): State => {
-  // stt reply as the shell would deliver it
-  const top = s.stack[s.stack.length - 1];
-  if (top.kind !== 'dictate') return s;
-  return { ...s, stack: [...s.stack.slice(0, -1), { ...top, phase: 'confirm', text }] };
+  const h = hold(s);
+  const rel = gesture(h.s, 'release', T + 2_000).state;
+  return reply(rel, { kind: 'listen' }, { t: 'ok', reqId: h.id, text }, T).state;
+};
+const longThread = (): State => {
+  const s = openRow(3);
+  const t = s.thread!;
+  const at = t.lines[0]?.at ?? '';
+  const lines = [
+    { who: 'you' as const, text: 'Pause the DroneID ads and tell me the final spend.', at },
+    { who: 'tool' as const, text: 'google-ads set-campaign-status DroneID Search PAUSED', at },
+    { who: 'agent' as const, text: 'Search is paused. Display was already off. Pulling the final numbers now.', at },
+    { who: 'tool' as const, text: 'google-ads insights --campaign all --since 30d', at },
+    {
+      who: 'agent' as const,
+      text: 'Final tally: $201.09 over 30 days, 59 clicks, no conversions. Nothing else is spending on the account.',
+      at,
+    },
+    { who: 'you' as const, text: 'Good. Delete the old Display draft too.', at },
+    {
+      who: 'agent' as const,
+      text: 'Deleted the stale DroneID Display draft. The account now has no enabled campaigns.',
+      at,
+    },
+    ...t.lines,
+  ];
+  return feed(s, { ...t, lines });
 };
 
 const LONG =
@@ -99,7 +135,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '03-home',
     looking_for:
-      'Inbox on top, starred views below; cursor ▶ on Inbox brightest, need-you rows brighter than quiet ones; counts in header right',
+      'Inbox on top, starred views below; cursor ▶ on Inbox; M1 markers (! needs you, … working, → quiet); counts in header right',
     state: online(),
   },
   {
@@ -114,7 +150,8 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '06-view-inbox',
-    looking_for: 'waiting rows first with ●, working ▷, done □; title then detail, age; one line each; position n/N',
+    looking_for:
+      "waiting rows first; Jordan's M1 markers (2026-11-12): ! needs you, … working, → your turn, z asleep, · done, × error; title then detail, age; one line each; position n/N",
     state: inInbox(),
   },
   {
@@ -136,12 +173,12 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '11-question',
     looking_for:
-      "ask heading, question text brightest, options with the primary first under the cursor, 'Say something else…' last",
+      'the question text at full brightness (alpha 255); options under it at textColor 2 (alpha 197) with the primary first under the bright ▶ cursor; no voice row (hold to talk instead)',
     state: openRow(0),
   },
   {
     name: '12-permission',
-    looking_for: 'Bash command heading, the command, Yes first, Always, No, Deny and say why…',
+    looking_for: 'Bash command heading, the command, Yes first, Always, No; no voice row',
     state: openRow(1),
   },
   {
@@ -151,13 +188,18 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '14-working-session',
-    looking_for: 'last agent message in 3 lines, dim activity line, Talk to it / Mark done / Set aside',
+    looking_for:
+      'the conversation: › your lines, – tool lines, agent replies plain; newest at the bottom; the activity line starts with the … marker and is dimmer (textColor 1 = alpha 179 vs 255: the whole range glass has); no action rows',
     state: openRow(3),
   },
-  { name: '15-done-session', looking_for: 'a done session: no Mark done action', state: openRow(4) },
+  {
+    name: '15-done-session',
+    looking_for: 'a done session (the fake has one message): that message, no activity line',
+    state: openRow(4),
+  },
   {
     name: '16-permission-long-command',
-    looking_for: 'a very long command wraps to 2 lines and ends with …',
+    looking_for: 'a very long command is cut to 2 lines ending with …, options right under it',
     state: feed(press(feed(press(online(), 'tap'), viewFrame('inbox', longRows)), 'tap'), {
       ...threadFrame('chiba/deploy'),
       row: longRows[0],
@@ -172,47 +214,46 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '17-dictate-listening',
-    looking_for: "hold on the working session: header right listening… bright, body 'Speak now.', no gesture hint",
+    looking_for: "hold on the working session: header right '● 4s' bright, body 'Speak now.', no gesture hint",
     state: press(openRow(3), 'hold'),
   },
   {
-    name: '18-dictate-transcribing',
-    looking_for: 'released: transcribing…',
-    state: press(openRow(3), 'hold', 'release'),
+    name: '18-dictate-live-words',
+    looking_for:
+      'holding: settled words bright (newest lines kept); the tail Soniox may still change on its own line in parentheses ending …, one brightness step dimmer',
+    state: hearing(openRow(3), 'pause both campaigns and send me the final spend number', 'when it is'),
   },
   {
     name: '19-dictate-confirm-message',
     looking_for: 'Message: + the transcript, Send under the cursor, Redo, Cancel',
-    state: withTranscript(press(openRow(3), 'hold'), 'pause both and send me the final spend number when it is done'),
+    state: withTranscript(openRow(3), 'pause both and send me the final spend number when it is done'),
   },
   {
     name: '20-dictate-confirm-question',
     looking_for: "on a question with free text: 'Answer:'",
-    state: withTranscript(press(openRow(0), 'hold'), 'only the display campaign, keep search running'),
+    state: withTranscript(openRow(0), 'only the display campaign, keep search running'),
   },
   {
     name: '21-dictate-confirm-permission',
     looking_for: "on a permission: 'Deny, with this note:' (speech never approves)",
-    state: withTranscript(press(openRow(1), 'hold'), 'yes go ahead'),
+    state: withTranscript(openRow(1), 'yes go ahead'),
   },
   {
     name: '22-dictate-heard-nothing',
     looking_for: "empty transcript: 'Nothing was heard.', Redo / Cancel",
-    state: (() => {
-      const s = press(openRow(3), 'hold');
-      const t = s.stack[s.stack.length - 1];
-      return t.kind === 'dictate' ? { ...s, stack: [...s.stack.slice(0, -1), { ...t, phase: 'empty' as const }] } : s;
-    })(),
+    state: withTranscript(openRow(3), ''),
   },
   {
     name: '23-dictate-failed',
-    looking_for: 'stt or send failed: the reason, Redo / Cancel',
+    looking_for: 'speech failed (Soniox down or out of credit): the reason, Say it again / Cancel',
     state: (() => {
-      const s = press(openRow(3), 'hold');
-      const t = s.stack[s.stack.length - 1];
-      return t.kind === 'dictate'
-        ? { ...s, stack: [...s.stack.slice(0, -1), { ...t, phase: 'failed' as const, error: 'offline' }] }
-        : s;
+      const h = hold(openRow(3));
+      return reply(
+        h.s,
+        { kind: 'listen' },
+        { t: 'refused', reqId: h.id, reason: 'host-down', message: 'speech service offline' },
+        T,
+      ).state;
     })(),
   },
   {
@@ -245,5 +286,31 @@ export const LENS_FRAMES: GalleryFrame[] = [
     name: '26-refused-notice',
     looking_for: "an answer refused as gone: header right says 'already answered'",
     state: { ...inInbox(), notice: { text: 'already answered', until: Number.MAX_SAFE_INTEGER } },
+  },
+  {
+    name: '27-conversation-long',
+    looking_for: 'a long conversation follows the newest: last 7 lines, header right shows status and n/N pages',
+    state: longThread(),
+  },
+  {
+    name: '28-conversation-scrolled-back',
+    looking_for: 'swiped up once: an older page, page number drops, text not cut mid-line',
+    state: press(longThread(), 'up'),
+  },
+  {
+    name: '29-session-menu',
+    looking_for: 'tap on a working conversation: Stop under the cursor, Mark done, Set aside',
+    state: press(openRow(3), 'tap'),
+  },
+  {
+    name: '30-new-session-listening',
+    looking_for:
+      "hold on Home: 'New session' header, '● 4s', 'First message:' label, live words with the undecided tail on a dim line",
+    state: hearing(online(), 'look into why the nightly billing job', 'double counts'),
+  },
+  {
+    name: '31-new-session-confirm',
+    looking_for: "new session confirm: 'First message:' + the prompt, Send / Say it again / Cancel",
+    state: withTranscript(online(), 'look into why the nightly billing job double counts refunds'),
   },
 ];
