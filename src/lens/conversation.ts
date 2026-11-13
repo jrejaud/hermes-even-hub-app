@@ -17,12 +17,18 @@ export const CONVO_LINES = 7;
 
 const prefix = (l: GlassesLine): string => (l.who === 'you' ? '› ' : l.who === 'tool' ? '– ' : '');
 
+/** Frames a heading on both sides; ━ is in the firmware font. */
+export const HEADING_RULE = '━━';
+/** Opens a line that was all bold. */
+export const TITLE_MARK = '▶';
+
 const PICTO = /[\p{Extended_Pictographic}️‍]/gu;
 
 /**
  * One source line of markdown as the lens can show it. The lens has one font, one weight and one brightness
- * per container, so there is no bold: a heading is simulated as UPPERCASE (its emoji dropped, the firmware
- * cannot draw them), and inline `**bold**`, `__bold__` and `code` lose their markers. Leading spaces stay.
+ * per container, so there is no bold. Jordan picked glyph frames (2026-11-13): a heading is `━━ TITLE ━━`
+ * (uppercase, its emoji dropped: the firmware cannot draw them), a line that is ALL bold (a report item's
+ * title) opens with ▶, and inline `**bold**`, `__bold__` and `code` lose their markers. Leading spaces stay.
  */
 export function lensMarkdown(src: string): string {
   // The report's status circles have firmware twins; other emoji vanish on the lens anyway.
@@ -31,12 +37,16 @@ export function lensMarkdown(src: string): string {
   const indent = lead.replace(/\t/g, '   ');
   let body = line.slice(lead.length).trimEnd();
   const heading = /^#{1,6}\s+(.*)$/.exec(body);
-  if (heading)
-    return heading[1]
+  if (heading) {
+    const title = heading[1]
       .replace(PICTO, '')
       .replace(/\*\*|__|`/g, '')
       .trim()
       .toUpperCase();
+    return title ? `${HEADING_RULE} ${title} ${HEADING_RULE}` : '';
+  }
+  const allBold = /^(?:\*\*|__)(.+?)(?:\*\*|__)$/.exec(body);
+  if (allBold && !/\*\*|__/.test(allBold[1])) body = `${TITLE_MARK} ${allBold[1]}`;
   body = body
     .replace(/^>\s?/, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')

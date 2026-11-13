@@ -22,13 +22,13 @@ describe('conversation keeps the shape of a message', () => {
   it('keeps line breaks, single blank lines and indents', () => {
     const rows = conversationLines([{ who: 'agent', text: report } as never]);
     expect(rows).toEqual([
-      'QUEUED',
+      '━━ QUEUED ━━',
       '',
-      'Corrlinks fix (SC-4512)',
+      '▶ Corrlinks fix (SC-4512)',
       '',
       'needs: a coding session.',
       '',
-      '1 OF 2 GOALS FINISHED',
+      '━━ 1 OF 2 GOALS FINISHED ━━',
       '',
       '○ Lens v2: hold to talk',
       '   ● app, tests',
@@ -36,8 +36,10 @@ describe('conversation keeps the shape of a message', () => {
     ]);
   });
 
-  it('simulates a heading as uppercase and strips inline markers', () => {
-    expect(lensMarkdown('### ✅ Done')).toBe('DONE');
+  it('frames a heading, marks an all-bold title line, strips inline markers', () => {
+    expect(lensMarkdown('### ✅ Done')).toBe('━━ DONE ━━');
+    expect(lensMarkdown('**Ads paused (DroneID)**')).toBe('▶ Ads paused (DroneID)');
+    expect(lensMarkdown('**a** and **b**')).toBe('a and b');
     expect(lensMarkdown('use `npm test` and **bold** and __this__')).toBe('use npm test and bold and this');
     expect(lensMarkdown('> quoted')).toBe('quoted');
     expect(lensMarkdown('  - item')).toBe('  - item');

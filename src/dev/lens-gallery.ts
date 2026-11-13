@@ -342,7 +342,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '32-conversation-report',
     looking_for:
-      'a status report keeps its shape: headings in UPPERCASE, a blank line between blocks, steps indented under their goal with ● done and ○ open',
+      'a status report keeps its shape: headings framed ━━ TITLE ━━ in uppercase, an all-bold title line opens with ▶, a blank line between blocks, steps indented under their goal with ● done and ○ open',
     state: reportThread(),
   },
   {
