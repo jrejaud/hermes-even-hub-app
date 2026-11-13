@@ -283,7 +283,7 @@ function layoutRaw(s: State, now: number): LensFrame {
   const status = connRight(s);
 
   if (s.conn === 'unconfigured') {
-    return message('Aristo', 'setup', 'Open Aristo Lens on your phone and enter the gateway address and token.');
+    return message('Aristo', 'setup', 'Open Agent on your phone and enter the gateway address and token.');
   }
 
   if (sc.kind === 'home') {

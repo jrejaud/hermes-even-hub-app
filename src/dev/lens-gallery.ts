@@ -78,6 +78,32 @@ const longThread = (): State => {
   return feed(s, { ...t, lines });
 };
 
+/** An agent's status report, the shape Jordan reads most: headings, title lines, blank lines, indented steps. */
+const reportThread = (): State => {
+  const s = openRow(3);
+  const t = s.thread!;
+  const at = t.lines[0]?.at ?? '';
+  const text = [
+    '## ✅ DONE',
+    '',
+    '**Ads paused (DroneID)**',
+    '',
+    'Final tally: $201.09, 59 clicks, 0 conversions.',
+    '',
+    '## 🏁 1 of 2 goals finished',
+    '',
+    '⚪ **Ads**: stop the DroneID spend',
+    '   🟢 search paused',
+    '   ⚪ tracking tag (you)',
+  ].join('\n');
+  return feed(s, {
+    ...t,
+    lines: [
+      { who: 'you' as const, text: 'Status?', at },
+      { who: 'agent' as const, text, at },
+    ],
+  });
+};
 const LONG =
   'Investigate why the nightly Parakeet billing reconciliation job keeps double-counting refunds issued in the last week';
 const longRows = [
@@ -312,5 +338,11 @@ export const LENS_FRAMES: GalleryFrame[] = [
     name: '31-new-session-confirm',
     looking_for: "new session confirm: 'First message:' + the prompt, Send / Say it again / Cancel",
     state: withTranscript(online(), 'look into why the nightly billing job double counts refunds'),
+  },
+  {
+    name: '32-conversation-report',
+    looking_for:
+      'a status report keeps its shape: headings in UPPERCASE, a blank line between blocks, steps indented under their goal with ● done and ○ open',
+    state: reportThread(),
   },
 ];
