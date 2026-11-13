@@ -123,9 +123,11 @@ export interface GlassesAsk {
   createdAt: string;
 }
 
-/** One message of a thread, as plain text. */
+/** One message of a thread. */
 export interface GlassesLine {
   who: "you" | "agent" | "tool";
+  /** `you` and `agent`: the message as written (markdown, line breaks and indents kept; the lens lays it out).
+   *  `tool`: one line, the call and its argument. */
   text: string;
   /** ISO time, or "" when the log had none. */
   at: string;
