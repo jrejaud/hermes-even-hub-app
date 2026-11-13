@@ -110,3 +110,25 @@ describe('brightness hierarchy (rule 3), with the widest steps the scale allows'
     expect(b[1].bright).toBe(1);
   });
 });
+
+describe('session rows: marker, title, age (Jordan, 2026-11-13)', () => {
+  it('a view row carries no detail ("Bash: …" command) and ends with its age at the right edge', () => {
+    const f = LENS_FRAMES.find((x) => x.name === '06-view-inbox')!;
+    const rows = layout(f.state, GALLERY_NOW).body.map((b) => b.text);
+    expect(rows.some((r) => /ssh chiba|Which do I pause/.test(r))).toBe(false);
+    for (const r of rows.filter((x) => /\d+[smhd]( ▽)?$/.test(x))) {
+      expect(r).not.toMatch(/ - \d+[smhd]/);
+      expect(getTextWidth(r)).toBeGreaterThan(TEXT_W - 40);
+      expect(getTextWidth(r)).toBeLessThanOrEqual(TEXT_W);
+    }
+  });
+
+  it('a short row is padded out to the edge, a long title is cut and the age survives', () => {
+    const short = row(false, '! Fix it', '', { tail: '2m' });
+    expect(short).toMatch(/^.*! Fix it {3,}2m$/);
+    const long = row(false, '! ' + 'very long title '.repeat(10), '', { tail: '14m' });
+    expect(long.endsWith('14m')).toBe(true);
+    expect(long).toContain('…');
+    expect(getTextWidth(long)).toBeLessThanOrEqual(TEXT_W);
+  });
+});

@@ -177,7 +177,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '06-view-inbox',
     looking_for:
-      "waiting rows first; Jordan's M1 markers (2026-11-12): ! needs you, … working, → your turn, z asleep, · done, × error; title then detail, age; one line each; position n/N",
+      "waiting rows first; Jordan's M1 markers (2026-11-12): ! needs you, … working, → your turn, z asleep, · done, × error; marker, title, then the age at the right edge (no detail or command); one line each; position n/N",
     state: inInbox(),
   },
   {
@@ -344,5 +344,16 @@ export const LENS_FRAMES: GalleryFrame[] = [
     looking_for:
       'a status report keeps its shape: headings in UPPERCASE, a blank line between blocks, steps indented under their goal with ● done and ○ open',
     state: reportThread(),
+  },
+  {
+    name: '33-permission-reading-session',
+    looking_for:
+      'swiped up on the first option of a permission: the conversation behind it, newest page; dim last line "! <ask> ▽" says the options wait below',
+    state: press(openRow(1), 'up'),
+  },
+  {
+    name: '34-question-reading-session',
+    looking_for: 'swiped up on a question: its conversation, header right names the ask kind (and page if several)',
+    state: press(openRow(0), 'up'),
   },
 ];

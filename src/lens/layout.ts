@@ -19,6 +19,7 @@ import { wrapTextLines } from './wrap';
 import { CONVO_LINES, conversationLines, convoWindow } from './conversation';
 import {
   anchorFor,
+  peekFor,
   cursorIndex,
   items,
   liveAsk,
@@ -194,7 +195,16 @@ export function row(on: boolean, rawMain: string, rawDetail = '', o: RowOpts = {
   const detail = clean(rawDetail);
   const tail = clean(o.tail ?? '');
   const prefix = cursorPrefix(on) + INDENT.repeat(Math.min(2, o.depth ?? 0));
-  const end = tail ? (detail ? `, ${tail}` : ` - ${tail}`) : '';
+  if (!detail && tail) {
+    // Title, then the age pushed to the right edge with measured spaces (rule 6: right-side metadata).
+    const max = o.maxPx ?? TEXT_W;
+    const gap = getTextWidth('   ');
+    const title = fit(main, max - getTextWidth(prefix) - getTextWidth(tail) - gap);
+    const used = getTextWidth(prefix + title) + getTextWidth(tail);
+    const pad = Math.max(3, Math.floor((max - used) / getTextWidth(' ')));
+    return prefix + title + ' '.repeat(pad) + tail;
+  }
+  const end = tail ? `, ${tail}` : '';
   const room = (o.maxPx ?? TEXT_W) - getTextWidth(prefix) - getTextWidth(end);
   if (!detail) return prefix + fit(main, room) + end;
   const full = `${main} - ${detail}`;
@@ -232,7 +242,8 @@ function listBoxes<T>(
 function viewRowBox(r: GlassesRow, on: boolean, moreBelow: boolean): Box {
   const tail = [r.age, moreBelow ? MORE_BELOW : ''].filter(Boolean).join(' ');
   return {
-    text: row(on, `${MARK[r.mark]} ${r.title}`, r.detail || r.status, { tail, depth: r.depth }),
+    // Marker, title, age: nothing else (Jordan, 2026-11-13: no "Bash: …" command after the title).
+    text: row(on, `${MARK[r.mark]} ${r.title}`, '', { tail, depth: r.depth }),
     bright: on ? B.cursor : MARK_BRIGHT[r.mark],
     lines: 1,
   };
@@ -333,6 +344,19 @@ function layoutRaw(s: State, now: number): LensFrame {
     const ask = liveAsk(s, sc.key);
     const list = items(s);
     const cur = cursorIndex(s);
+    const reading = peekFor(s, sc.key);
+    if (ask && reading !== undefined) {
+      // Reading the conversation behind the ask; the dim last line names what is waiting below (▽).
+      const win = convoWindow(conversationLines(t.lines), reading);
+      const pageTag = win.pages > 1 ? `${win.page}/${win.pages}` : '';
+      const waiting = `${MARK.needs} ${ask.ask || ask.kind} ${MORE_BELOW}`;
+      const body: Box[] = [
+        { text: win.lines.join('\n'), bright: B.body, lines: Math.min(CONVO_LINES, Math.max(1, win.lines.length)) },
+        { text: fit(waiting, TEXT_W), bright: B.dim, lines: 1 },
+      ];
+      const right = status ?? [ask.kind, pageTag].filter(Boolean).join(', ');
+      return { left: t.row.title, right, leftBright: B.normal, rightBright: B.needs, body };
+    }
     if (ask) {
       // A label that only repeats the header's ask kind ("Question" under "question") is dropped.
       const label = ask.ask.trim().toLowerCase() === ask.kind.toLowerCase() ? '' : ask.ask;

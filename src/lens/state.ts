@@ -22,7 +22,7 @@ import type {
   GlassesServerFrame,
 } from '../gateway/glasses';
 import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from '../gateway/glasses';
-import { conversationLines, scrollAnchor } from './conversation';
+import { CONVO_LINES, conversationLines, scrollAnchor } from './conversation';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
@@ -100,6 +100,12 @@ export interface State {
   limits: Record<string, number>;
   /** Conversation scroll per session: null/absent = follow the newest, a number = the pinned top line. */
   anchors: Record<string, number | null>;
+  /**
+   * On a question or permission screen: reading the conversation behind it, at this pinned top line. Absent =
+   * the options are showing. Swipe up past the first option enters it; swipe down off the newest page, or a
+   * tap, goes back to the options (Jordan, 2026-11-13: "I should always be able to scroll up and see the session").
+   */
+  peek: Record<string, number>;
 }
 
 export type Effect =
@@ -128,6 +134,7 @@ export function initialState(conn: Conn = 'connecting'): State {
     seq: 1,
     limits: {},
     anchors: {},
+    peek: {},
   };
 }
 
@@ -268,6 +275,18 @@ function resetCursor(s: State, sc: Screen): State {
   delete cursor[sid];
   delete cursorIndex[sid];
   return { ...s, cursor, cursorIndex };
+}
+
+/** Reading the conversation behind a session's ask: the pinned top line, or undefined when the options show. */
+export function peekFor(s: State, key: GlassesKey): number | undefined {
+  return liveAsk(s, key) ? s.peek[key] : undefined;
+}
+
+function withPeek(s: State, key: string, at: number | undefined): State {
+  const peek = { ...s.peek };
+  if (at === undefined) delete peek[key];
+  else peek[key] = at;
+  return { ...s, peek };
 }
 
 /** The conversation's scroll anchor for a session (null = following the newest). */
@@ -437,6 +456,18 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   if (sc.kind === 'menu') return menuGesture(s, sc, g, drawn);
 
   if (g === 'up' || g === 'down') {
+    // An ask screen: up past the first option reads the conversation behind it, a page at a time.
+    if (sc.kind === 'session' && liveAsk(s, sc.key)) {
+      const t = threadFor(s, sc.key);
+      const reading = s.peek[sc.key];
+      if (t && (reading !== undefined || (g === 'up' && cursorIndex(s, sc) === 0))) {
+        const all = conversationLines(t.lines);
+        const lastTop = Math.max(0, all.length - CONVO_LINES);
+        if (reading === undefined) return none(withPeek(s, sc.key, lastTop));
+        if (g === 'down' && reading >= lastTop) return none(withPeek(s, sc.key, undefined));
+        return none(withPeek(s, sc.key, scrollAnchor(all, reading, g) ?? lastTop));
+      }
+    }
     // The conversation scrolls a page; any other screen moves the cursor.
     if (sc.kind === 'session' && !liveAsk(s, sc.key)) {
       const t = threadFor(s, sc.key);
@@ -463,6 +494,7 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
 
   if (g === 'double') {
     if (s.stack.length === 1) return { state: s, effects: [{ kind: 'exit' }], pending: {} };
+    if (sc.kind === 'session') s = withPeek(s, sc.key, undefined);
     s = pop(s);
     return { state: s, effects: navEffects(s), pending: {} };
   }
@@ -471,6 +503,8 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   if (g === 'release') return none(s);
 
   // tap
+  // Reading behind an ask: a tap goes back to the options (never answers what is not on screen).
+  if (sc.kind === 'session' && drawn.peek[sc.key] !== undefined) return none(withPeek(s, sc.key, undefined));
   if (sc.kind === 'session' && !liveAsk(drawn, sc.key)) {
     // The conversation's actions live behind a tap.
     const menu: Screen = { kind: 'menu', key: sc.key, title: sc.title };
@@ -496,7 +530,7 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   const opt = ask?.options[it.index];
   if (!ask || !opt) return none(s);
   const r = nextReq(s);
-  s = { ...r.s, answered: [...r.s.answered, ask.promptId] };
+  s = withPeek({ ...r.s, answered: [...r.s.answered, ask.promptId] }, sc.key, undefined);
   // Answered: back to the list, cursor on top, where the next waiting session already is.
   s = pop(s);
   s = resetCursor(s, top(s));

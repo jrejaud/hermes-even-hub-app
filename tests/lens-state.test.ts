@@ -11,6 +11,7 @@ import {
   landing,
   MAX_LISTEN_MS,
   micEnded,
+  peekFor,
   receive,
   reply,
   restore,
@@ -351,5 +352,43 @@ describe('hold while offline (glasses gate dead-frame, SC-9703)', () => {
       expect(r.state).toBe(s);
       expect(r.effects).toEqual([]);
     }
+  });
+});
+
+describe('reading the conversation behind an ask (Jordan, 2026-11-13)', () => {
+  // "If I'm in high priority, I can see the questions, but I don't see a way that I can scroll up and see
+  // the actual session." Up past the first option reads it; down off the newest page or a tap comes back.
+  const key = 'overlord/kill';
+  it('up on the first option opens the conversation; up again pages back; down returns to the options', () => {
+    const s = open(0);
+    expect(cursorIndex(s)).toBe(0);
+    const peeking = press(s, 'up');
+    expect(peekFor(peeking, key)).toBeTypeOf('number');
+    const newest = peekFor(peeking, key)!;
+    const older = press(peeking, 'up');
+    if (newest > 0) expect(peekFor(older, key)!).toBeLessThan(newest);
+    let back = older;
+    for (let i = 0; i < 10 && peekFor(back, key) !== undefined; i++) back = press(back, 'down');
+    expect(peekFor(back, key)).toBeUndefined();
+    expect(cursorIndex(back)).toBe(0);
+  });
+
+  it('a tap while reading goes back to the options and answers nothing', () => {
+    const peeking = press(open(0), 'up');
+    const r = gesture(peeking, 'tap', T, peeking);
+    expect(sends(r)).toEqual([]);
+    expect(peekFor(r.state, key)).toBeUndefined();
+    expect(top(r.state)).toMatchObject({ kind: 'session', key });
+  });
+
+  it('up below the first option still moves the cursor', () => {
+    const s = press(open(0), 'down', 'up');
+    expect(cursorIndex(s)).toBe(0);
+    expect(peekFor(s, key)).toBeUndefined();
+  });
+
+  it('back from a session forgets the reading position', () => {
+    const s = press(open(0), 'up', 'double');
+    expect(s.peek[key]).toBeUndefined();
   });
 });
