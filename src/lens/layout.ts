@@ -297,6 +297,12 @@ function layoutRaw(s: State, now: number): LensFrame {
     return message('Aristo', 'setup', 'Open Agent on your phone and enter the gateway address and token.');
   }
 
+  // Quiet mode: only a dim "quiet" in the corner, so you can tell the app is running (a fully dark lens looks
+  // like a dead one). A banner (drawn above, before this) is the only other thing that shows. If the gateway
+  // drops, the corner says so instead, so a quiet lens never hides that banners stopped coming.
+  if (sc.kind === 'quiet')
+    return { left: '', right: status ?? 'quiet', leftBright: B.dim, rightBright: B.dim, body: [] };
+
   if (sc.kind === 'home') {
     if (!s.home)
       return message(
@@ -309,6 +315,7 @@ function layoutRaw(s: State, now: number): LensFrame {
     const list = items(s);
     const cur = cursorIndex(s);
     const body = listBoxes(list, cur, LIST_ROWS, (it, on) => {
+      if (it.kind === 'quiet') return { text: row(on, 'Quiet'), bright: on ? B.cursor : B.dim, lines: 1 };
       const v = (it as Extract<Item, { kind: 'view' }>).view;
       const glyph = v.needs ? MARK.needs : v.working ? MARK.working : MARK['your-turn'];
       const bright: Bright = on ? B.cursor : v.needs ? B.needs : B.dim;

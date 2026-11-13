@@ -392,3 +392,54 @@ describe('reading the conversation behind an ask (Jordan, 2026-11-13)', () => {
     expect(s.peek[key]).toBeUndefined();
   });
 });
+
+describe('quiet mode (Jordan, 2026-11-13)', () => {
+  // "I can run it in a way where it doesn't actually show anything … if an agent needs me, it would show up
+  // like a notification … I would tap a button and be taken to the session."
+  const banner: GlassesServerFrame = {
+    t: 'banner',
+    key: 'box/churn',
+    title: 'Churn audit',
+    ask: 'Include trial users?',
+    promptId: 'p-churn',
+  };
+  const quiet = (): State => {
+    let s = online();
+    while (items(s).at(cursorIndex(s))?.kind !== 'quiet' && cursorIndex(s) < 20) s = press(s, 'down');
+    return press(s, 'tap');
+  };
+
+  it('Home ends with a Quiet row; tapping it opens the blank quiet screen with Home kept open at the gateway', () => {
+    const home = online();
+    expect(items(home).at(-1)).toMatchObject({ kind: 'quiet' });
+    const s = quiet();
+    expect(top(s)).toEqual({ kind: 'quiet' });
+  });
+
+  it('a banner in quiet mode stays until dismissed; Answer now opens the session, answering returns to quiet', () => {
+    const s = feed(quiet(), banner);
+    expect(expire(s, T + BANNER_MS * 10).banner?.key).toBe('box/churn');
+    const opened = press(s, 'tap');
+    expect(top(opened)).toMatchObject({ kind: 'session', key: 'box/churn' });
+    expect(top(press(opened, 'double'))).toEqual({ kind: 'quiet' });
+  });
+
+  it('Later or a double tap on the banner goes back to the blank lens', () => {
+    expect(top(press(feed(quiet(), banner), 'double'))).toEqual({ kind: 'quiet' });
+    const later = press(feed(quiet(), banner), 'down', 'tap');
+    expect(later.banner).toBeNull();
+    expect(top(later)).toEqual({ kind: 'quiet' });
+  });
+
+  it('tap or double tap on the blank lens goes back to Home; swipes do nothing', () => {
+    expect(top(press(quiet(), 'tap'))).toEqual({ kind: 'home' });
+    expect(top(press(quiet(), 'double'))).toEqual({ kind: 'home' });
+    expect(top(press(quiet(), 'up', 'down'))).toEqual({ kind: 'quiet' });
+  });
+
+  it('a cold start with more sessions waiting does not pull the wearer out of quiet mode', () => {
+    const s = quiet();
+    expect(s.home?.[0]?.needs).toBeGreaterThan(0);
+    expect(top(landing(s, { ...toSaved(s, T), inboxNeeds: 0 }))).toEqual({ kind: 'quiet' });
+  });
+});

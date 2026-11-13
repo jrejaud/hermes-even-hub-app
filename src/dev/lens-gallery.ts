@@ -7,7 +7,7 @@
  *   VITE_UI_GALLERY=1 npm run dev  +  npm run sim  +  npm run ui:capture
  */
 import type { GlassesServerFrame } from '../gateway/glasses';
-import { gesture, initialState, receive, reply, type Gesture, type State } from '../lens/state';
+import { cursorIndex, gesture, initialState, items, receive, reply, type Gesture, type State } from '../lens/state';
 import { HOME, ROWS, row, threadFrame, viewFrame } from './fake-gateway';
 
 export interface GalleryFrame {
@@ -104,6 +104,13 @@ const reportThread = (): State => {
     ],
   });
 };
+
+/** Home, cursor moved to the Quiet row, tapped. */
+const quietMode = (): State => {
+  let s = online();
+  for (let i = 0; i < 20 && items(s)[cursorIndex(s)]?.kind !== 'quiet'; i++) s = press(s, 'down');
+  return press(s, 'tap');
+};
 const LONG =
   'Investigate why the nightly Parakeet billing reconciliation job keeps double-counting refunds issued in the last week';
 const longRows = [
@@ -161,7 +168,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '03-home',
     looking_for:
-      'Inbox on top, starred views below; cursor ▶ on Inbox; M1 markers (! needs you, … working, → quiet); counts in header right',
+      'Inbox on top, starred views below, a Quiet row last; cursor ▶ on Inbox; M1 markers (! needs you, … working, → quiet); counts in header right',
     state: online(),
   },
   {
@@ -355,5 +362,22 @@ export const LENS_FRAMES: GalleryFrame[] = [
     name: '34-question-reading-session',
     looking_for: 'swiped up on a question: its conversation, header right names the ask kind (and page if several)',
     state: press(openRow(0), 'up'),
+  },
+  {
+    name: '35-quiet',
+    looking_for:
+      'quiet mode: only a dim "quiet" top right (the app is running); nothing else; a tap or double tap goes back to Home',
+    state: quietMode(),
+  },
+  {
+    name: '36-quiet-banner',
+    looking_for: 'a session needs you while in quiet mode: ! title, needs you, the ask, Answer now / Later',
+    state: feed(quietMode(), {
+      t: 'banner',
+      key: 'box/churn',
+      title: 'Churn audit',
+      ask: 'Include trial users in the cohort?',
+      promptId: 'p-churn',
+    }),
   },
 ];

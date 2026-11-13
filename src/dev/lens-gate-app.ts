@@ -20,6 +20,7 @@ export function screenOf(s: State): string {
   if (s.banner) return `banner:${s.banner.key}`;
   const sc = top(s);
   if (sc.kind === 'home') return `home:${s.conn}`;
+  if (sc.kind === 'quiet') return 'quiet';
   if (sc.kind === 'view') return `view:${sc.viewId}`;
   if (sc.kind === 'session') return `session:${sc.key}:${liveAsk(s, sc.key) ? 'ask' : 'thread'}`;
   if (sc.kind === 'menu') return `menu:${sc.key}`;

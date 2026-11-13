@@ -34,6 +34,8 @@ export type Conn = 'unconfigured' | 'connecting' | 'online' | 'reconnecting';
 
 export type Screen =
   | { kind: 'home' }
+  /** Quiet mode: the lens stays blank while the app runs; a banner appears when a session needs you. */
+  | { kind: 'quiet' }
   | { kind: 'view'; viewId: string; name: string }
   | { kind: 'session'; key: GlassesKey; title: string }
   /** The session's actions, opened by a tap on its conversation. */
@@ -143,6 +145,7 @@ export const top = (s: State): Screen => s.stack[s.stack.length - 1];
 /** A stable id for a screen, so the cursor survives leaving and coming back. */
 export function screenId(sc: Screen): string {
   if (sc.kind === 'home') return 'home';
+  if (sc.kind === 'quiet') return 'quiet';
   if (sc.kind === 'view') return `view:${sc.viewId}`;
   if (sc.kind === 'session') return `session:${sc.key}`;
   if (sc.kind === 'menu') return `menu:${sc.key}`;
@@ -153,7 +156,7 @@ export function screenId(sc: Screen): string {
 export function openFor(s: State): GlassesOpen {
   for (let i = s.stack.length - 1; i >= 0; i--) {
     const sc = s.stack[i];
-    if (sc.kind === 'home') return { screen: 'home' };
+    if (sc.kind === 'home' || sc.kind === 'quiet') return { screen: 'home' };
     if (sc.kind === 'view') {
       const limit = s.limits[sc.viewId];
       return limit ? { screen: 'view', viewId: sc.viewId, limit } : { screen: 'view', viewId: sc.viewId };
@@ -172,6 +175,7 @@ export function openFor(s: State): GlassesOpen {
  */
 export type Item =
   | { id: string; kind: 'view'; view: GlassesHomeView }
+  | { id: string; kind: 'quiet' }
   | { id: string; kind: 'row'; row: GlassesRow }
   | { id: string; kind: 'option'; index: number }
   | { id: string; kind: 'stop' }
@@ -199,7 +203,11 @@ export function liveAsk(s: State, key: GlassesKey | null): GlassesAsk | null {
 }
 
 export function items(s: State, sc: Screen = top(s)): Item[] {
-  if (sc.kind === 'home') return (s.home ?? []).map((v) => ({ id: v.id, kind: 'view', view: v }));
+  if (sc.kind === 'home') {
+    const views: Item[] = (s.home ?? []).map((v) => ({ id: v.id, kind: 'view', view: v }));
+    return s.home ? [...views, { id: 'quiet', kind: 'quiet' }] : views;
+  }
+  if (sc.kind === 'quiet') return [];
   if (sc.kind === 'view') {
     const v = viewFor(s, sc.viewId);
     if (!v) return [];
@@ -454,6 +462,15 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
 
   if (sc.kind === 'dictate') return dictateGesture(s, sc, g, now, drawn);
   if (sc.kind === 'menu') return menuGesture(s, sc, g, drawn);
+  if (sc.kind === 'quiet') {
+    // Nothing to move through; a tap or double tap goes back to Home, a hold starts a new session.
+    if (g === 'tap' || g === 'double') {
+      const home = pop(s);
+      return { state: home, effects: navEffects(home), pending: {} };
+    }
+    if (g === 'hold') return holdToTalk(s, sc, now, drawn);
+    return none(s);
+  }
 
   if (g === 'up' || g === 'down') {
     // An ask screen: up past the first option reads the conversation behind it, a page at a time.
@@ -516,6 +533,10 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   if (!it) return none(s);
   s = setCursor(s, sc, at);
 
+  if (it.kind === 'quiet') {
+    s = push(s, { kind: 'quiet' });
+    return { state: s, effects: navEffects(s), pending: {} };
+  }
   if (it.kind === 'view') {
     s = push(s, { kind: 'view', viewId: it.view.id, name: it.view.name });
     return { state: s, effects: navEffects(s), pending: {} };
@@ -605,7 +626,7 @@ function listen(
 function holdToTalk(s: State, sc: Screen, now: number, drawn: State): GestureResult {
   // Speech needs the gateway: offline (or not set up) a hold does nothing rather than open a dead mic.
   if (s.conn !== 'online') return none(s);
-  if (sc.kind === 'home')
+  if (sc.kind === 'home' || sc.kind === 'quiet')
     return listen(s, { kind: 'dictate', purpose: 'create', key: null, title: 'New session' }, now);
   if (sc.kind === 'session') {
     const ask = liveAsk(s, sc.key);
@@ -740,7 +761,7 @@ function bannerGesture(s: State, g: Gesture): GestureResult {
 /** Drop a banner or notice whose time is up. Pure in `now`; app.ts calls it on a timer too. */
 export function expire(s: State, now: number): State {
   let out = s;
-  if (out.banner && now - out.banner.at >= BANNER_MS) out = { ...out, banner: null };
+  if (out.banner && top(out).kind !== 'quiet' && now - out.banner.at >= BANNER_MS) out = { ...out, banner: null };
   if (out.notice && now >= out.notice.until) out = { ...out, notice: null };
   return out;
 }
@@ -783,6 +804,7 @@ export function restore(s: State, saved: Saved | null): State {
 export function landing(s: State, saved: Saved | null): State {
   const inbox = s.home?.[0];
   if (!inbox) return s;
+  if (top(s).kind === 'quiet') return s;
   if (saved && inbox.needs <= saved.inboxNeeds) return s;
   if (!saved && inbox.needs === 0) return s;
   const stack: Screen[] = [{ kind: 'home' }, { kind: 'view', viewId: inbox.id, name: inbox.name }];
