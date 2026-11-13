@@ -2,8 +2,9 @@
  * A session's conversation as lens lines, and paging through it (Aristo Lens v2, SC-9703).
  *
  * Shared by the state machine (which pages) and the layout (which draws), so both agree on how many lines
- * there are. Your messages start `›`, tool calls `–`, the agent's replies are plain; a blank line separates
- * turns. Paging counts from the NEWEST end: `anchor === null` means "follow the bottom" (new replies show up
+ * there are. Your messages start `›`, the agent's replies are plain; a blank line separates turns. Tool calls
+ * are not shown at all (Jordan, 2026-11-13: "any tool calls should by default be hidden" on the glasses).
+ * Scrolling counts from the NEWEST end: `anchor === null` means "follow the bottom" (new replies show up
  * as they arrive); a number pins the top line while you read back.
  */
 import type { GlassesLine } from '../gateway/glasses';
@@ -14,8 +15,14 @@ import { wrapTextLines } from './wrap';
 export const CONVO_W = 576 - 4 - 12;
 /** Lines the conversation box shows at once. */
 export const CONVO_LINES = 7;
+/**
+ * Lines one swipe moves. Less than a page, so most of what you were reading stays on screen and slides
+ * instead of the whole page being swapped (Jordan, 2026-11-13: "instead of changing the entire page at once,
+ * the scrolling should be smooth").
+ */
+export const SCROLL_STEP = 3;
 
-const prefix = (l: GlassesLine): string => (l.who === 'you' ? '› ' : l.who === 'tool' ? '– ' : '');
+const prefix = (l: GlassesLine): string => (l.who === 'you' ? '› ' : '');
 
 /** Frames a heading on both sides; ━ is in the firmware font. */
 export const HEADING_RULE = '━━';
@@ -89,11 +96,12 @@ const spaceWidth = (s: string): number => (s ? getTextWidth(s) : 0);
 
 export function conversationLines(lines: GlassesLine[]): string[] {
   const out: string[] = [];
-  lines.forEach((l, i) => {
+  lines.forEach((l) => {
+    if (l.who === 'tool') return;
     const rows = messageRows(l.text, prefix(l));
     if (!rows.length) return;
     // A blank line before each of your messages: it marks the start of a turn.
-    if (i > 0 && l.who === 'you' && out.length) out.push('');
+    if (l.who === 'you' && out.length) out.push('');
     out.push(...rows);
   });
   return out.length ? out : ['No messages yet.'];
@@ -118,16 +126,37 @@ export function convoWindow(all: string[], anchor: number | null, size = CONVO_L
   return { lines: all.slice(top, top + size), page, pages, anchor: following ? null : top };
 }
 
-/** Scroll one page: up = older, down = newer (back to following the bottom at the end). */
+/** Scroll one step (SCROLL_STEP lines): up = older, down = newer (back to following the bottom at the end). */
 export function scrollAnchor(
   all: string[],
   anchor: number | null,
   dir: 'up' | 'down',
   size = CONVO_LINES,
+  step = SCROLL_STEP,
 ): number | null {
   const lastTop = Math.max(0, all.length - size);
   const top = anchor === null ? lastTop : Math.min(anchor, lastTop);
-  if (dir === 'up') return Math.max(0, top - size);
-  const next = top + size;
+  if (dir === 'up') return Math.max(0, top - step);
+  const next = top + step;
   return next >= lastTop ? null : next;
+}
+
+/** The top line an anchor puts on screen (null = following the newest). */
+export function topLine(all: string[], anchor: number | null, size = CONVO_LINES): number {
+  const lastTop = Math.max(0, all.length - size);
+  return anchor === null ? lastTop : Math.max(0, Math.min(anchor, lastTop));
+}
+
+/**
+ * The top lines to show between two scroll positions, one line apart, excluding both ends. Painting them in
+ * turn makes a swipe slide the text a line at a time rather than jump: each in-between frame is a flicker-free
+ * textContainerUpgrade of the one conversation box.
+ */
+export function glide(all: string[], from: number | null, to: number | null, size = CONVO_LINES): number[] {
+  const a = topLine(all, from, size);
+  const b = topLine(all, to, size);
+  const dir = Math.sign(b - a);
+  const out: number[] = [];
+  for (let t = a + dir; dir !== 0 && t !== b; t += dir) out.push(t);
+  return out;
 }

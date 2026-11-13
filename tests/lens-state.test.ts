@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { GlassesServerFrame } from '../src/gateway/glasses';
 import { ASKS, HOME, ROWS, threadFrame, viewFrame } from '../src/dev/fake-gateway';
+import { layout } from '../src/lens/layout';
 import {
   BANNER_MS,
   cursorIndex,
   expire,
+  glideFrames,
   gesture,
   initialState,
   items,
@@ -12,6 +14,7 @@ import {
   MAX_LISTEN_MS,
   micEnded,
   peekFor,
+  anchorFor,
   receive,
   reply,
   restore,
@@ -441,5 +444,52 @@ describe('quiet mode (Jordan, 2026-11-13)', () => {
     const s = quiet();
     expect(s.home?.[0]?.needs).toBeGreaterThan(0);
     expect(top(landing(s, { ...toSaved(s, T), inboxNeeds: 0 }))).toEqual({ kind: 'quiet' });
+  });
+});
+
+// Jordan, 2026-11-13: "instead of changing the entire page at once, the scrolling should be smooth".
+describe('a swipe glides the conversation a line at a time', () => {
+  const key = ROWS[3].key;
+  const long = (): State => {
+    const t = threadFrame(key);
+    const lines = Array.from({ length: 30 }, (_, i) => ({ who: 'agent' as const, text: `line ${i}`, at: '' }));
+    return feed(press(inbox(), 'down', 'down', 'down', 'tap'), { ...t, lines });
+  };
+
+  it('swipe up: the in-between frames step the anchor one line each, ending next to the target', () => {
+    const s = long();
+    const up = press(s, 'up');
+    const target = anchorFor(up, key)!;
+    const frames = glideFrames(s, up);
+    // A 3-line step has 2 frames in between: target+2, target+1.
+    expect(frames.map((f) => anchorFor(f, key))).toEqual([target + 2, target + 1]);
+  });
+
+  it('no glide for a cut: opening another screen, or the menu', () => {
+    const s = long();
+    expect(glideFrames(s, press(s, 'tap'))).toEqual([]);
+    expect(glideFrames(inbox(), s)).toEqual([]);
+  });
+});
+
+// Jordan, 2026-11-13: tool calls stay off the lens, including the "what it is doing" line.
+describe('the activity line never names a tool', () => {
+  const key = ROWS[3].key;
+  const working = (detail: string, promptId: string | null): State => {
+    const t = threadFrame(key);
+    return feed(press(inbox(), 'down', 'down', 'down', 'tap'), {
+      ...t,
+      row: { ...t.row, mark: 'working', detail, promptId },
+    });
+  };
+  const text = (s: State): string =>
+    layout(s)
+      .body.map((b) => b.text)
+      .join('\n');
+
+  it('a working session shows "working", not the tool it runs', () => {
+    const out = text(working('Edit packages/shared/view-engine.ts', null));
+    expect(out).not.toContain('view-engine');
+    expect(out).toContain('working');
   });
 });

@@ -222,7 +222,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '14-working-session',
     looking_for:
-      'the conversation: › your lines, – tool lines, agent replies plain; newest at the bottom; the activity line starts with the … marker and is dimmer (textColor 1 = alpha 179 vs 255: the whole range glass has); no action rows',
+      'the conversation: › your lines, agent replies plain, NO tool-call lines; newest at the bottom; the activity line starts with the … marker and is dimmer (textColor 1 = alpha 179 vs 255: the whole range glass has); no action rows',
     state: openRow(3),
   },
   {
@@ -327,7 +327,8 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '28-conversation-scrolled-back',
-    looking_for: 'swiped up once: an older page, page number drops, text not cut mid-line',
+    looking_for:
+      'swiped up once: the text moved 3 lines down (4 of the 7 lines from before are still on screen), text not cut mid-line',
     state: press(longThread(), 'up'),
   },
   {

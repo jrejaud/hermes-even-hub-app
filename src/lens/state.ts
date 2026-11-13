@@ -6,8 +6,8 @@
  * prompt or a view: a tap on an option echoes that option's `answer` payload verbatim.
  *
  * v2 (Jordan, 2026-11-12): voice is hold-to-talk only (right temple or ring), and the words stream in while
- * you hold (the gateway relays Soniox partials); the session screen is the conversation, scrolled a page at
- * a time, with its actions (Stop, Mark done, Set aside) behind a tap; hold on Home starts a new session.
+ * you hold (the gateway relays Soniox partials); the session screen is the conversation, scrolled a few
+ * lines at a time, with its actions (Stop, Mark done, Set aside) behind a tap; hold on Home starts a new session.
  *
  * Gestures in, `{ state, effects }` out. The shell (app.ts) runs the effects: socket frames, the mic,
  * persisting the open screen, closing the app.
@@ -22,7 +22,7 @@ import type {
   GlassesServerFrame,
 } from '../gateway/glasses';
 import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from '../gateway/glasses';
-import { CONVO_LINES, conversationLines, scrollAnchor } from './conversation';
+import { CONVO_LINES, conversationLines, glide, scrollAnchor } from './conversation';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
@@ -302,6 +302,32 @@ export function anchorFor(s: State, key: GlassesKey): number | null {
   return s.anchors[key] ?? null;
 }
 
+/**
+ * The states to paint between `prev` (on the lens) and `next` when a swipe moved the conversation, one line
+ * apart, so the text slides instead of jumping (Jordan, 2026-11-13). Empty when the screen, the session or
+ * the mode (reading behind an ask vs the options) changed: those are cuts, not scrolls.
+ */
+export function glideFrames(prev: State, next: State): State[] {
+  const a = top(prev);
+  const b = top(next);
+  if (a.kind !== 'session' || b.kind !== 'session' || a.key !== b.key) return [];
+  const key = b.key;
+  const t = threadFor(next, key);
+  if (!t || threadFor(prev, key) !== t) return [];
+  const all = conversationLines(t.lines);
+  const peekA = peekFor(prev, key);
+  const peekB = peekFor(next, key);
+  if (liveAsk(next, key)) {
+    if (peekA === undefined || peekB === undefined) return [];
+    return glide(all, peekA, peekB).map((at) => withPeek(next, key, at));
+  }
+  if (liveAsk(prev, key)) return [];
+  return glide(all, anchorFor(prev, key), anchorFor(next, key)).map((at) => ({
+    ...next,
+    anchors: { ...next.anchors, [key]: at },
+  }));
+}
+
 // ------------------------------------------------------------------------------------------- frames in
 
 /** Fold one server frame into the state. Returns effects only for what the frame itself demands. */
@@ -473,7 +499,7 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   }
 
   if (g === 'up' || g === 'down') {
-    // An ask screen: up past the first option reads the conversation behind it, a page at a time.
+    // An ask screen: up past the first option reads the conversation behind it, a few lines at a time.
     if (sc.kind === 'session' && liveAsk(s, sc.key)) {
       const t = threadFor(s, sc.key);
       const reading = s.peek[sc.key];
@@ -485,7 +511,7 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
         return none(withPeek(s, sc.key, scrollAnchor(all, reading, g) ?? lastTop));
       }
     }
-    // The conversation scrolls a page; any other screen moves the cursor.
+    // The conversation scrolls SCROLL_STEP lines; any other screen moves the cursor.
     if (sc.kind === 'session' && !liveAsk(s, sc.key)) {
       const t = threadFor(s, sc.key);
       if (!t) return none(s);

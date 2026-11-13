@@ -386,16 +386,19 @@ function layoutRaw(s: State, now: number): LensFrame {
       if (!list.length) body.push({ text: fit('Answer this one in Aristo.', TEXT_W), bright: B.normal, lines: 1 });
       return { left: t.row.title, right: status ?? ask.kind, leftBright: B.normal, rightBright: B.needs, body };
     }
-    // The conversation, a page at a time (swipe pages it), with what the session is doing on a dim last line.
+    // The conversation, a few lines per swipe, with what the session is doing on a dim last line.
     const win = convoWindow(conversationLines(t.lines), anchorFor(s, sc.key));
     const pageTag = win.pages > 1 ? `${win.page}/${win.pages}` : '';
     const right = status ?? [t.row.status, pageTag].filter(Boolean).join(', ');
     // Opens with the session's marker, so it reads as status, not one more message (brightness alone spans ~30% on glass).
-    const activity = t.row.detail
-      ? `${MARK[t.row.mark]} ${t.row.detail}`
-      : t.row.mark === 'working'
-        ? `${MARK.working} working`
-        : '';
+    // A working row's detail is the tool it is running ("Edit src/x.ts"): tool calls stay off the lens (Jordan,
+    // 2026-11-13), so only a pending ask's summary is shown; otherwise just "working".
+    const activity =
+      t.row.detail && t.row.promptId
+        ? `${MARK[t.row.mark]} ${t.row.detail}`
+        : t.row.mark === 'working'
+          ? `${MARK.working} working`
+          : '';
     const body: Box[] = [
       // As tall as the page (at most CONVO_LINES), so a short conversation keeps its activity line right under it.
       { text: win.lines.join('\n'), bright: B.body, lines: Math.min(CONVO_LINES, Math.max(1, win.lines.length)) },

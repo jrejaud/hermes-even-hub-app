@@ -15,6 +15,7 @@ import { renderPhone } from './phone';
 import { loadProfile, loadSaved, save, saveProfile, validateProfile } from './settings';
 import {
   expire,
+  glideFrames,
   gesture,
   initialState,
   landing,
@@ -34,6 +35,8 @@ import {
 const CHUNK_BYTES = (16_000 * 2) / 5;
 const TICK_MS = 1_000;
 const LANDING_WINDOW_MS = 6_000;
+/** Between the one-line frames of a scroll glide: one container upgrade each, well inside the BLE budget. */
+const GLIDE_MS = 80;
 
 export interface AppDeps {
   bridge: EvenAppBridge;
@@ -71,15 +74,38 @@ export async function startApp(d: AppDeps): Promise<void> {
     drawn = s;
   });
 
+  // ---- glide: a swipe slides the conversation a line per frame instead of jumping (see glideFrames).
+  /** The state last handed to the painter, an in-between glide frame included: the next glide starts here. */
+  let shown: State = state;
+  let gliding: State[] = [];
+  let glideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const show = (s: State): void => {
+    shown = s;
+    paint(s);
+  };
+
+  function glideStep(): void {
+    const s = gliding.shift();
+    // The last step is the live state, so a frame that arrived mid-glide is not lost.
+    show(s ?? state);
+    glideTimer = s ? setTimeout(glideStep, GLIDE_MS) : null;
+  }
+
   const phone = (): void => {
     if (d.root) renderPhone(d.root, { profile, conn: state.conn, errors: phoneErrors }, (p) => void onSaveProfile(p));
   };
 
-  const set = (next: State, effects: Effect[] = []): void => {
+  const set = (next: State, effects: Effect[] = [], frames: State[] = []): void => {
     const connChanged = next.conn !== state.conn;
     state = next;
     for (const e of effects) run(e);
-    paint(state);
+    if (frames.length) {
+      // A new swipe restarts the glide from wherever the lens is now.
+      if (glideTimer) clearTimeout(glideTimer);
+      gliding = frames;
+      glideStep();
+    } else if (!glideTimer) show(state);
     if (connChanged) phone();
   };
 
@@ -223,7 +249,7 @@ export async function startApp(d: AppDeps): Promise<void> {
     landed = true; // the wearer is driving now: never move the screen under them
     const r = gesture(state, inp, now(), drawn);
     remember(r.pending);
-    set(r.state, r.effects);
+    set(r.state, r.effects, glideFrames(shown, r.state));
   });
 
   setInterval(() => {
@@ -235,7 +261,7 @@ export async function startApp(d: AppDeps): Promise<void> {
         const r = micEnded(state, t);
         remember(r.pending);
         set(r.state, r.effects);
-      } else paint(state);
+      } else show(state);
       return;
     }
     if (!state.banner && !state.notice) return;
@@ -243,7 +269,7 @@ export async function startApp(d: AppDeps): Promise<void> {
     if (next !== state) set(next);
   }, TICK_MS);
 
-  paint(state);
+  show(state);
   phone();
   if (profile) client.start(profile);
   console.log('[glasses] ready');

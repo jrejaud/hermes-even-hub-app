@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { conversationLines, lensMarkdown } from '../src/lens/conversation';
+import {
+  conversationLines,
+  convoWindow,
+  glide,
+  lensMarkdown,
+  scrollAnchor,
+  SCROLL_STEP,
+} from '../src/lens/conversation';
 
 // Jordan, 2026-11-13: an agent's status report read on the lens lost every line break and indent
 // ("the new lines and the spaces … need to be respected"); the old code collapsed all whitespace.
@@ -63,5 +70,48 @@ describe('conversation keeps the shape of a message', () => {
       { who: 'you', text: 'line one\nline two' },
     ] as never);
     expect(rows).toEqual(['hi', '', '› line one', 'line two']);
+  });
+});
+
+// Jordan, 2026-11-13: "any tool calls should by default be hidden" on the glasses.
+describe('tool calls stay off the lens', () => {
+  it('drops tool lines entirely, and the turn spacing ignores them', () => {
+    const rows = conversationLines([
+      { who: 'you', text: 'pause the ads' },
+      { who: 'tool', text: 'google-ads set-campaign-status DroneID PAUSED' },
+      { who: 'agent', text: 'Paused.' },
+    ] as never);
+    expect(rows).toEqual(['› pause the ads', 'Paused.']);
+  });
+
+  it('a thread of only tool calls reads as empty', () => {
+    expect(conversationLines([{ who: 'tool', text: 'Bash: ls' }] as never)).toEqual(['No messages yet.']);
+  });
+});
+
+// Jordan, 2026-11-13: "instead of changing the entire page at once, the scrolling should be smooth".
+describe('scrolling moves a few lines, not a page', () => {
+  const all = Array.from({ length: 30 }, (_, i) => `line ${i}`);
+
+  it('one swipe up moves SCROLL_STEP lines and keeps the rest of the screen', () => {
+    expect(SCROLL_STEP).toBeLessThan(7);
+    const up = scrollAnchor(all, null, 'up');
+    expect(up).toBe(23 - SCROLL_STEP);
+    const before = convoWindow(all, null).lines;
+    const after = convoWindow(all, up).lines;
+    // Lines still on screen after the swipe: everything but the step.
+    expect(after.filter((l) => before.includes(l))).toHaveLength(7 - SCROLL_STEP);
+  });
+
+  it('swiping down from near the bottom goes back to following the newest', () => {
+    expect(scrollAnchor(all, 21, 'down')).toBeNull();
+    expect(scrollAnchor(all, 10, 'down')).toBe(13);
+  });
+
+  it('glide lists the in-between top lines one apart, both directions, ends excluded', () => {
+    expect(glide(all, null, 20)).toEqual([22, 21]);
+    expect(glide(all, 20, null)).toEqual([21, 22]);
+    expect(glide(all, 5, 5)).toEqual([]);
+    expect(glide(all, 0, 1)).toEqual([]);
   });
 });
