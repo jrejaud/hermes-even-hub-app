@@ -419,11 +419,11 @@ describe('quiet mode (Jordan, 2026-11-13)', () => {
     expect(items(online()).map((i) => i.kind)).not.toContain('quiet');
     expect(menuActions(online())).toEqual([
       { id: MENU_QUIET, label: 'Quiet mode' },
-      { id: MENU_NEW_AGENT, label: 'New agent' },
+      { id: MENU_NEW_AGENT, label: 'New session' },
     ]);
     expect(menuActions(quiet())).toEqual([
       { id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' },
-      { id: MENU_NEW_AGENT, label: 'New agent' },
+      { id: MENU_NEW_AGENT, label: 'New session' },
     ]);
     expect(menuActions({ ...online(), conn: 'reconnecting' })).toEqual([{ id: MENU_QUIET, label: 'Quiet mode' }]);
     expect(menuActions(press(online(), 'hold'))).toEqual([]); // dictating: the mic is open
@@ -439,7 +439,7 @@ describe('quiet mode (Jordan, 2026-11-13)', () => {
   });
 
   // Jordan, 2026-11-13: "we should also put like new agent there".
-  it('New agent from the glasses menu opens the mic for a new session from any screen; only a tap ends it', () => {
+  it('New session from the glasses menu opens the mic for a new session from any screen; only a tap ends it', () => {
     for (const from of [online(), quiet(), press(online(), 'tap', 'tap')]) {
       const r = menuPick(from, MENU_NEW_AGENT, T);
       expect(top(r.state)).toMatchObject({ kind: 'dictate', purpose: 'create', phase: 'listening', key: null });

@@ -99,7 +99,7 @@ describe('draw', () => {
     ];
     expect(created[0].menuObject?.menuItems).toEqual([
       expect.objectContaining({ itemID: MENU_QUIET, itemName: 'Quiet mode' }),
-      expect.objectContaining({ itemID: MENU_NEW_AGENT, itemName: 'New agent' }),
+      expect.objectContaining({ itemID: MENU_NEW_AGENT, itemName: 'New session' }),
     ]);
     await lens.draw(layout({ ...s, conn: 'reconnecting' }));
     const n = b.rebuilt;
@@ -108,7 +108,7 @@ describe('draw', () => {
     const rebuilt = b.rebuildPageContainer.mock.calls.at(-1) as unknown as [{ menuObject?: { menuItems: unknown[] } }];
     expect(rebuilt[0].menuObject?.menuItems).toEqual([
       expect.objectContaining({ itemID: MENU_LEAVE_QUIET, itemName: 'Leave quiet mode' }),
-      expect.objectContaining({ itemID: MENU_NEW_AGENT, itemName: 'New agent' }),
+      expect.objectContaining({ itemID: MENU_NEW_AGENT, itemName: 'New session' }),
     ]);
   });
 

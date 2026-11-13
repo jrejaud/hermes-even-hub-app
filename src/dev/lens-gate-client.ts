@@ -31,6 +31,8 @@ export interface LensGateState<S> {
   blank?: boolean;
   /** The screen declares glasses-menu items (tap, then hold): its page build must carry `menuObject`. */
   menu?: boolean;
+  /** Its glasses-menu items: the gate opens the simulator's menu and picks each one. */
+  menuItems?: { id: number; label: string }[];
   state: S;
 }
 
@@ -156,7 +158,7 @@ export async function runLensGate<S>(app: LensGateApp<S>): Promise<boolean> {
 
   await app.boot(bridge);
   console.log(
-    `[lens-gate] ready ${JSON.stringify({ states: app.states.map(({ name, lookingFor, root, approval, scrolls, blank, menu }) => ({ name, lookingFor, root: !!root, approval: !!approval, scrolls: !!scrolls, blank: !!blank, menu: !!menu })) })}`,
+    `[lens-gate] ready ${JSON.stringify({ states: app.states.map(({ name, lookingFor, root, approval, scrolls, blank, menu, menuItems }) => ({ name, lookingFor, root: !!root, approval: !!approval, scrolls: !!scrolls, blank: !!blank, menu: !!menu, menuItems: menuItems ?? [] })) })}`,
   );
 
   let after = 0;

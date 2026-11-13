@@ -496,7 +496,7 @@ export function menuActions(s: State): { id: number; label: string }[] {
   const quiet =
     sc.kind === 'quiet' ? { id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' } : { id: MENU_QUIET, label: 'Quiet mode' };
   // Jordan, 2026-11-13: "next to quiet mode, we should also put like new agent there". Speech needs the gateway.
-  return s.conn === 'online' ? [quiet, { id: MENU_NEW_AGENT, label: 'New agent' }] : [quiet];
+  return s.conn === 'online' ? [quiet, { id: MENU_NEW_AGENT, label: 'New session' }] : [quiet];
 }
 
 /**
