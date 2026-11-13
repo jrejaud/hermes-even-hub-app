@@ -236,7 +236,7 @@ export async function startApp(d: AppDeps): Promise<void> {
     const picked = osMenuPick(e);
     if (picked !== null) {
       landed = true;
-      const r = menuPick(state, picked);
+      const r = menuPick(state, picked, now());
       remember(r.pending);
       set(r.state, r.effects);
       return;

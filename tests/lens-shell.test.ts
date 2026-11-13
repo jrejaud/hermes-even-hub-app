@@ -6,7 +6,7 @@ import { startApp } from '../src/lens/app';
 import { Lens } from '../src/lens/draw';
 import { toInput } from '../src/lens/input';
 import { layout } from '../src/lens/layout';
-import { MENU_LEAVE_QUIET, MENU_QUIET, initialState, menuPick } from '../src/lens/state';
+import { MENU_LEAVE_QUIET, MENU_NEW_AGENT, MENU_QUIET, initialState, menuPick } from '../src/lens/state';
 import { parseSaved } from '../src/lens/settings';
 
 function fakeBridge() {
@@ -99,14 +99,16 @@ describe('draw', () => {
     ];
     expect(created[0].menuObject?.menuItems).toEqual([
       expect.objectContaining({ itemID: MENU_QUIET, itemName: 'Quiet mode' }),
+      expect.objectContaining({ itemID: MENU_NEW_AGENT, itemName: 'New agent' }),
     ]);
     await lens.draw(layout({ ...s, conn: 'reconnecting' }));
     const n = b.rebuilt;
-    await lens.draw(layout(menuPick(s, MENU_QUIET).state));
+    await lens.draw(layout(menuPick(s, MENU_QUIET, 0).state));
     expect(b.rebuilt).toBe(n + 1);
     const rebuilt = b.rebuildPageContainer.mock.calls.at(-1) as unknown as [{ menuObject?: { menuItems: unknown[] } }];
     expect(rebuilt[0].menuObject?.menuItems).toEqual([
       expect.objectContaining({ itemID: MENU_LEAVE_QUIET, itemName: 'Leave quiet mode' }),
+      expect.objectContaining({ itemID: MENU_NEW_AGENT, itemName: 'New agent' }),
     ]);
   });
 

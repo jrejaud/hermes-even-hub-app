@@ -2,7 +2,19 @@ import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
 import { GALLERY_NOW, LENS_FRAMES } from '../src/dev/lens-gallery';
 import { slots } from '../src/lens/draw';
-import { BODY_BOXES, BOX_BYTES, LINE, SCREEN, TEXT_W, block, drawable, fit, layout, row } from '../src/lens/layout';
+import {
+  BODY_BOXES,
+  BOX_BYTES,
+  LINE,
+  SCREEN,
+  TEXT_W,
+  block,
+  drawable,
+  fit,
+  layout,
+  row,
+  windowStart,
+} from '../src/lens/layout';
 
 const bytes = (t: string): number => new TextEncoder().encode(t).length;
 /** Firmware font has no emoji; anything astral is dropped on the lens. */
@@ -93,7 +105,7 @@ describe('brightness hierarchy (rule 3), with the widest steps the scale allows'
     const b = frame('03-home').body;
     expect(b[0].bright).toBe(4);
     expect(b.find((x) => x.text.includes('Foreground'))!.bright).toBe(3);
-    expect(b.find((x) => x.text.includes('Daemon'))!.bright).toBe(1);
+    expect(b.find((x) => x.text.includes('From glasses'))!.bright).toBe(1);
   });
   it('a question: the asked text 4 (no heading that only repeats "question"), a heading when there is one is 1', () => {
     const b = frame('11-question').body;
@@ -130,5 +142,16 @@ describe('session rows: marker, title, age (Jordan, 2026-11-13)', () => {
     expect(long.endsWith('14m')).toBe(true);
     expect(long).toContain('…');
     expect(getTextWidth(long)).toBeLessThanOrEqual(TEXT_W);
+  });
+});
+
+// Design rule 11 (Jordan, 2026-11-13): lists page; the cursor is never pinned mid-screen while rows slide under it.
+describe('list paging', () => {
+  it('the cursor walks to the last row of a page, then the next page flips in with it on the top row', () => {
+    expect([0, 1, 5].map((c) => windowStart(c, 14, 6))).toEqual([0, 0, 0]);
+    expect([6, 11].map((c) => windowStart(c, 14, 6))).toEqual([6, 6]);
+    expect(windowStart(12, 14, 6)).toBe(12); // a short last page, not a window backed up to fill it
+    expect(windowStart(3, 5, 6)).toBe(0);
+    expect(windowStart(99, 14, 6)).toBe(12);
   });
 });

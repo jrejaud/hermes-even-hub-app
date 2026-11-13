@@ -13,6 +13,7 @@ import {
   landing,
   MAX_LISTEN_MS,
   MENU_LEAVE_QUIET,
+  MENU_NEW_AGENT,
   MENU_QUIET,
   menuActions,
   menuPick,
@@ -410,30 +411,51 @@ describe('quiet mode (Jordan, 2026-11-13)', () => {
     ask: 'Include trial users?',
     promptId: 'p-churn',
   };
-  const quiet = (): State => menuPick(online(), MENU_QUIET).state;
+  const quiet = (): State => menuPick(online(), MENU_QUIET, T).state;
 
   // Jordan, 2026-11-13: "the way you access it should be from tapping and holding the menu … add quiet mode in
   // there"; "quiet mode should just look totally quiet".
   it('Home has no Quiet row; the glasses menu offers Quiet mode, and Leave quiet mode once in it', () => {
     expect(items(online()).map((i) => i.kind)).not.toContain('quiet');
-    expect(menuActions(online())).toEqual([{ id: MENU_QUIET, label: 'Quiet mode' }]);
-    expect(menuActions(quiet())).toEqual([{ id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' }]);
+    expect(menuActions(online())).toEqual([
+      { id: MENU_QUIET, label: 'Quiet mode' },
+      { id: MENU_NEW_AGENT, label: 'New agent' },
+    ]);
+    expect(menuActions(quiet())).toEqual([
+      { id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' },
+      { id: MENU_NEW_AGENT, label: 'New agent' },
+    ]);
+    expect(menuActions({ ...online(), conn: 'reconnecting' })).toEqual([{ id: MENU_QUIET, label: 'Quiet mode' }]);
     expect(menuActions(press(online(), 'hold'))).toEqual([]); // dictating: the mic is open
   });
 
   it('Quiet mode from inside a session sits on top of Home (the gateway is told Home, so banners keep coming)', () => {
     const inSession = press(online(), 'tap', 'tap');
     expect(top(inSession).kind).not.toBe('home');
-    const r = menuPick(inSession, MENU_QUIET);
+    const r = menuPick(inSession, MENU_QUIET, T);
     expect(r.state.stack).toEqual([{ kind: 'home' }, { kind: 'quiet' }]);
     expect(r.effects).toContainEqual({ kind: 'send', frame: { t: 'open', screen: 'home' } });
-    expect(menuPick(r.state, MENU_LEAVE_QUIET).state.stack).toEqual([{ kind: 'home' }]);
+    expect(menuPick(r.state, MENU_LEAVE_QUIET, T).state.stack).toEqual([{ kind: 'home' }]);
+  });
+
+  // Jordan, 2026-11-13: "we should also put like new agent there".
+  it('New agent from the glasses menu opens the mic for a new session from any screen; only a tap ends it', () => {
+    for (const from of [online(), quiet(), press(online(), 'tap', 'tap')]) {
+      const r = menuPick(from, MENU_NEW_AGENT, T);
+      expect(top(r.state)).toMatchObject({ kind: 'dictate', purpose: 'create', phase: 'listening', key: null });
+      expect(r.effects.map((e) => e.kind)).toEqual(['send', 'micStart']);
+      // The release that trails the menu's tap-then-hold does not end it; a tap does.
+      const later = (st: State, g: Gesture) => gesture(st, g, T + 3_000).state;
+      expect(top(later(r.state, 'release'))).toMatchObject({ kind: 'dictate', phase: 'listening' });
+      expect(top(later(r.state, 'tap'))).toMatchObject({ kind: 'dictate', phase: 'finishing' });
+    }
+    expect(menuPick({ ...online(), conn: 'reconnecting' }, MENU_NEW_AGENT, T).effects).toEqual([]);
   });
 
   it('a menu id this screen does not offer changes nothing', () => {
     const s = online();
-    expect(menuPick(s, MENU_LEAVE_QUIET).state).toBe(s);
-    expect(menuPick(s, 99).state).toBe(s);
+    expect(menuPick(s, MENU_LEAVE_QUIET, T).state).toBe(s);
+    expect(menuPick(s, 99, T).state).toBe(s);
   });
 
   it('the quiet lens draws nothing at all, not even a corner label, even while reconnecting', () => {

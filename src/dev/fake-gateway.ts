@@ -142,6 +142,8 @@ export const ROWS: GlassesRow[] = [
 
 export const HOME: GlassesHomeView[] = [
   { id: 'inbox', name: 'Inbox', needs: 3, working: 1, total: 7 },
+  { id: 'glasses-started', name: 'From glasses', needs: 0, working: 1, total: 2 },
+  { id: 'glasses-history', name: 'Glasses history', needs: 1, working: 1, total: 6 },
   { id: 'fg', name: 'Foreground', needs: 2, working: 4, total: 9 },
   { id: 'parakeet', name: 'Parakeet', needs: 1, working: 2, total: 5 },
   { id: 'netrunner', name: 'Netrunner', needs: 0, working: 1, total: 2 },

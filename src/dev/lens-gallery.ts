@@ -106,7 +106,7 @@ const reportThread = (): State => {
 };
 
 /** Home, then Quiet mode picked from the glasses' tap-then-hold menu. */
-const quietMode = (): State => menuPick(online(), MENU_QUIET).state;
+const quietMode = (): State => menuPick(online(), MENU_QUIET, GALLERY_NOW).state;
 const LONG =
   'Investigate why the nightly Parakeet billing reconciliation job keeps double-counting refunds issued in the last week';
 const longRows = [
@@ -164,7 +164,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '03-home',
     looking_for:
-      'Inbox on top, starred views below; cursor ▶ on Inbox; M1 markers (! needs you, … working, → quiet); counts in header right',
+      'Inbox on top, starred views below; cursor ▶ on Inbox; M1 markers (! needs you, … working; quieter views dim); From glasses and Glasses history right under Inbox; counts in header right',
     state: online(),
   },
   {
@@ -185,8 +185,9 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '07-view-scrolled',
-    looking_for: 'cursor deep in the list, window scrolled, n/N updates',
-    state: press(inInbox(), 'down', 'down', 'down', 'down', 'down'),
+    looking_for:
+      'cursor past the first page: the second page is shown with the cursor on its row (lists page, never slide), n/N updates',
+    state: press(inInbox(), 'down', 'down', 'down', 'down', 'down', 'down'),
   },
   {
     name: '08-view-long-and-nonascii',
@@ -196,7 +197,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '09-view-empty',
     looking_for: "an empty view says 'Nothing here.'",
-    state: feed(press(online(), 'down', 'down', 'down', 'tap'), viewFrame('netrunner', [])),
+    state: feed(press(online(), 'down', 'down', 'down', 'down', 'down', 'tap'), viewFrame('netrunner', [])),
   },
   { name: '10-view-loading', looking_for: 'view opened, frame not here yet: Loading…', state: press(online(), 'tap') },
   {

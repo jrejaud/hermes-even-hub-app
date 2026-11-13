@@ -222,10 +222,14 @@ export function row(on: boolean, rawMain: string, rawDetail = '', o: RowOpts = {
 
 // ------------------------------------------------------------------------------------------- lists
 
-/** Which slice of a long list is visible: keep the cursor two rows from the top edge where possible. */
+/**
+ * Which slice of a long list is visible: lists PAGE (even-frontend design rule 11, Jordan 2026-11-13). The cursor
+ * walks down to the last row of the page; one more step flips the next page in with the cursor on its top row.
+ * Never a window that slides under a cursor pinned mid-screen.
+ */
 export function windowStart(cursor: number, total: number, size: number): number {
-  if (total <= size) return 0;
-  return Math.max(0, Math.min(cursor - 2, total - size));
+  if (total <= size || size <= 0) return 0;
+  return Math.floor(Math.max(0, Math.min(cursor, total - 1)) / size) * size;
 }
 
 /** Marks the last visible row when more rows sit below the window. */

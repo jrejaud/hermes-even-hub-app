@@ -62,6 +62,11 @@ export interface Dictation {
   listenId: string;
   /** When the hold started (ms epoch): the timer in the header, the short-hold and 60 s rules. */
   startedAt: number;
+  /**
+   * Started from the glasses menu, not a hold: only a tap ends it. A release that trails the menu's own
+   * tap-then-hold must not end the recording before the wearer has said anything.
+   */
+  tapToEnd?: boolean;
 }
 
 export interface Banner extends BannerFrame {
@@ -479,6 +484,7 @@ const none = (state: State): GestureResult => ({ state, effects: [], pending: {}
 /** Ids of the glasses' own tap-then-hold menu items (os-menu.ts). Stable: a click means the same thing always. */
 export const MENU_QUIET = 1;
 export const MENU_LEAVE_QUIET = 2;
+export const MENU_NEW_AGENT = 3;
 
 /**
  * The items this screen adds to the glasses' menu. Quiet mode lives here, not on Home (Jordan, 2026-11-13:
@@ -487,15 +493,17 @@ export const MENU_LEAVE_QUIET = 2;
 export function menuActions(s: State): { id: number; label: string }[] {
   const sc = top(s);
   if (sc.kind === 'dictate') return [];
-  if (sc.kind === 'quiet') return [{ id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' }];
-  return [{ id: MENU_QUIET, label: 'Quiet mode' }];
+  const quiet =
+    sc.kind === 'quiet' ? { id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' } : { id: MENU_QUIET, label: 'Quiet mode' };
+  // Jordan, 2026-11-13: "next to quiet mode, we should also put like new agent there". Speech needs the gateway.
+  return s.conn === 'online' ? [quiet, { id: MENU_NEW_AGENT, label: 'New agent' }] : [quiet];
 }
 
 /**
  * A pick from the glasses' menu. Quiet mode sits on top of Home (so the gateway keeps sending banners for every
  * session) wherever it was picked from; leaving it lands on Home.
  */
-export function menuPick(s: State, id: number): GestureResult {
+export function menuPick(s: State, id: number, now: number): GestureResult {
   const valid = menuActions(s).some((a) => a.id === id);
   if (!valid) return none(s);
   if (id === MENU_QUIET) {
@@ -506,6 +514,8 @@ export function menuPick(s: State, id: number): GestureResult {
     const home: State = { ...s, stack: [{ kind: 'home' }] };
     return { state: home, effects: navEffects(home), pending: {} };
   }
+  if (id === MENU_NEW_AGENT)
+    return listen(s, { kind: 'dictate', purpose: 'create', key: null, title: 'New session', tapToEnd: true }, now);
   return none(s);
 }
 
@@ -747,7 +757,7 @@ function cancelListen(s: State, d: Dictation): GestureResult {
 function dictateGesture(s: State, d: Dictation, g: Gesture, now: number, drawn: State): GestureResult {
   if (d.phase === 'listening') {
     // Release ends it; a tap ends it too (the glasses sometimes lose the release); double tap discards.
-    if (g === 'release' || g === 'tap') return endListen(s, d, now);
+    if ((g === 'release' && !d.tapToEnd) || g === 'tap') return endListen(s, d, now);
     if (g === 'double') return cancelListen(s, d);
     return none(s);
   }
