@@ -72,9 +72,14 @@ export class GatewayClient {
     if (ws && ws.readyState < 2) ws.close();
   }
 
-  /** Reconnect now (a WebView resume): the old socket may be dead without having said so. */
-  kick(): void {
+  /**
+   * Reconnect now (a WebView resume): the old socket may be dead without having said so. Skipped when the
+   * socket is open and heard from within the last ping interval: the glasses' menu opening sends the same
+   * "foreground" event as a resume, and must not drop a healthy socket.
+   */
+  kick(now: number = Date.now()): void {
     if (!this.profile) return;
+    if (this.ws?.readyState === 1 && now - this.lastRecv < PING_MS + 5_000) return;
     this.start(this.profile);
   }
 

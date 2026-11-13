@@ -17,8 +17,10 @@ import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import type { GlassesMark, GlassesRow } from '../gateway/glasses';
 import { wrapTextLines } from './wrap';
 import { CONVO_LINES, conversationLines, convoWindow } from './conversation';
+import type { OsMenuItem } from './os-menu';
 import {
   anchorFor,
+  menuActions,
   peekFor,
   cursorIndex,
   items,
@@ -77,6 +79,8 @@ export interface LensFrame {
   rightBright: Bright;
   /** At most BODY_BOXES. */
   body: Box[];
+  /** The glasses' own tap-then-hold menu items for this screen (os-menu.ts). */
+  menu?: OsMenuItem[];
 }
 
 // ------------------------------------------------------------------------------------------- geometry
@@ -281,6 +285,7 @@ export function layout(s: State, now: number = Date.now()): LensFrame {
   const f = layoutRaw(s, now);
   return {
     ...f,
+    menu: menuActions(s),
     // A clear gutter between where-you-are and the live status (the critic saw them nearly touch).
     left: fit(f.left, SCREEN.w - rightWidth(f.right) - 2 * PAD - 40),
     right: fit(f.right, 290),
@@ -297,11 +302,9 @@ function layoutRaw(s: State, now: number): LensFrame {
     return message('Aristo', 'setup', 'Open Agent on your phone and enter the gateway address and token.');
   }
 
-  // Quiet mode: only a dim "quiet" in the corner, so you can tell the app is running (a fully dark lens looks
-  // like a dead one). A banner (drawn above, before this) is the only other thing that shows. If the gateway
-  // drops, the corner says so instead, so a quiet lens never hides that banners stopped coming.
-  if (sc.kind === 'quiet')
-    return { left: '', right: status ?? 'quiet', leftBright: B.dim, rightBright: B.dim, body: [] };
+  // Quiet mode draws nothing at all (Jordan, 2026-11-13: "quiet mode should just look totally quiet"). A banner
+  // (drawn above, before this) is the only thing that shows; the tap-then-hold menu leaves it.
+  if (sc.kind === 'quiet') return { left: '', right: '', leftBright: B.dim, rightBright: B.dim, body: [] };
 
   if (sc.kind === 'home') {
     if (!s.home)
@@ -315,7 +318,6 @@ function layoutRaw(s: State, now: number): LensFrame {
     const list = items(s);
     const cur = cursorIndex(s);
     const body = listBoxes(list, cur, LIST_ROWS, (it, on) => {
-      if (it.kind === 'quiet') return { text: row(on, 'Quiet'), bright: on ? B.cursor : B.dim, lines: 1 };
       const v = (it as Extract<Item, { kind: 'view' }>).view;
       const glyph = v.needs ? MARK.needs : v.working ? MARK.working : MARK['your-turn'];
       const bright: Bright = on ? B.cursor : v.needs ? B.needs : B.dim;

@@ -12,6 +12,10 @@ import {
   items,
   landing,
   MAX_LISTEN_MS,
+  MENU_LEAVE_QUIET,
+  MENU_QUIET,
+  menuActions,
+  menuPick,
   micEnded,
   peekFor,
   anchorFor,
@@ -406,17 +410,37 @@ describe('quiet mode (Jordan, 2026-11-13)', () => {
     ask: 'Include trial users?',
     promptId: 'p-churn',
   };
-  const quiet = (): State => {
-    let s = online();
-    while (items(s).at(cursorIndex(s))?.kind !== 'quiet' && cursorIndex(s) < 20) s = press(s, 'down');
-    return press(s, 'tap');
-  };
+  const quiet = (): State => menuPick(online(), MENU_QUIET).state;
 
-  it('Home ends with a Quiet row; tapping it opens the blank quiet screen with Home kept open at the gateway', () => {
-    const home = online();
-    expect(items(home).at(-1)).toMatchObject({ kind: 'quiet' });
-    const s = quiet();
-    expect(top(s)).toEqual({ kind: 'quiet' });
+  // Jordan, 2026-11-13: "the way you access it should be from tapping and holding the menu … add quiet mode in
+  // there"; "quiet mode should just look totally quiet".
+  it('Home has no Quiet row; the glasses menu offers Quiet mode, and Leave quiet mode once in it', () => {
+    expect(items(online()).map((i) => i.kind)).not.toContain('quiet');
+    expect(menuActions(online())).toEqual([{ id: MENU_QUIET, label: 'Quiet mode' }]);
+    expect(menuActions(quiet())).toEqual([{ id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' }]);
+    expect(menuActions(press(online(), 'hold'))).toEqual([]); // dictating: the mic is open
+  });
+
+  it('Quiet mode from inside a session sits on top of Home (the gateway is told Home, so banners keep coming)', () => {
+    const inSession = press(online(), 'tap', 'tap');
+    expect(top(inSession).kind).not.toBe('home');
+    const r = menuPick(inSession, MENU_QUIET);
+    expect(r.state.stack).toEqual([{ kind: 'home' }, { kind: 'quiet' }]);
+    expect(r.effects).toContainEqual({ kind: 'send', frame: { t: 'open', screen: 'home' } });
+    expect(menuPick(r.state, MENU_LEAVE_QUIET).state.stack).toEqual([{ kind: 'home' }]);
+  });
+
+  it('a menu id this screen does not offer changes nothing', () => {
+    const s = online();
+    expect(menuPick(s, MENU_LEAVE_QUIET).state).toBe(s);
+    expect(menuPick(s, 99).state).toBe(s);
+  });
+
+  it('the quiet lens draws nothing at all, not even a corner label, even while reconnecting', () => {
+    for (const s of [quiet(), { ...quiet(), conn: 'reconnecting' as const }]) {
+      const f = layout(s);
+      expect([f.left, f.right, ...f.body.map((b) => b.text)].join('')).toBe('');
+    }
   });
 
   it('a banner in quiet mode stays until dismissed; Answer now opens the session, answering returns to quiet', () => {

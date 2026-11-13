@@ -10,6 +10,7 @@ import type { GlassesServerFrame as ServerFrame } from '../gateway/glasses';
 import { serializeLatest } from '../util/coalesce';
 import { Lens } from './draw';
 import { toInput } from './input';
+import { osMenuPick } from './os-menu';
 import { layout } from './layout';
 import { renderPhone } from './phone';
 import { loadProfile, loadSaved, save, saveProfile, validateProfile } from './settings';
@@ -17,6 +18,7 @@ import {
   expire,
   glideFrames,
   gesture,
+  menuPick,
   initialState,
   landing,
   MAX_LISTEN_MS,
@@ -230,11 +232,21 @@ export async function startApp(d: AppDeps): Promise<void> {
       onPcm(pcm);
       return;
     }
+    // A pick from the glasses' own tap-then-hold menu (Quiet mode and friends).
+    const picked = osMenuPick(e);
+    if (picked !== null) {
+      landed = true;
+      const r = menuPick(state, picked);
+      remember(r.pending);
+      set(r.state, r.effects);
+      return;
+    }
     const inp = toInput(e);
     if (!inp) return;
     if (inp === 'foreground') {
-      // Android may have suspended us: treat it as a cold start of the socket. The hello re-sends `open`.
-      if (profile) client.kick();
+      // Android may have suspended us: reconnect unless the socket is plainly alive. The glasses' menu opening
+      // sends this same event, and must not drop a healthy socket. The hello re-sends `open`.
+      if (profile) client.kick(now());
       return;
     }
     if (inp === 'background') {

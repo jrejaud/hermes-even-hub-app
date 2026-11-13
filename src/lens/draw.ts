@@ -18,6 +18,7 @@ import {
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk';
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk';
+import { osMenuKey, osMenuObject } from './os-menu';
 import { BODY_TOP, BOX_GAP, HEADER_H, PAD, SCREEN, boxHeight, rightWidth, type LensFrame } from './layout';
 
 interface Slot {
@@ -68,10 +69,12 @@ export function slots(f: LensFrame): Slot[] {
   return out;
 }
 
+/** What forces a page rebuild: container positions, and the OS menu (items can only change on a build). */
 export function geometry(f: LensFrame): string {
-  return slots(f)
+  const boxes = slots(f)
     .map((s) => `${s.id}:${s.x},${s.y},${s.w},${s.h}`)
     .join('|');
+  return `${boxes}#${osMenuKey(f.menu ?? [])}`;
 }
 
 function property(s: Slot): TextContainerProperty {
@@ -132,7 +135,13 @@ export class Lens {
     const want = slots(f);
     const geom = geometry(f);
     if (!this.created || geom !== this.geom) {
-      const cfg = { containerTotalNum: want.length, textObject: want.map(property) };
+      // The OS menu rides on every build: a rebuild without it clears the wearer's tap-then-hold items.
+      const menuObject = osMenuObject(f.menu ?? []);
+      const cfg = {
+        containerTotalNum: want.length,
+        textObject: want.map(property),
+        ...(menuObject ? { menuObject } : {}),
+      };
       // create resolves a result code (0 = success); rebuild resolves a boolean.
       const ok: number | boolean = !this.created
         ? await this.bridge.createStartUpPageContainer(new CreateStartUpPageContainer(cfg))

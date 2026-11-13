@@ -6,7 +6,7 @@ import { startApp } from '../src/lens/app';
 import { Lens } from '../src/lens/draw';
 import { toInput } from '../src/lens/input';
 import { layout } from '../src/lens/layout';
-import { initialState } from '../src/lens/state';
+import { MENU_LEAVE_QUIET, MENU_QUIET, initialState, menuPick } from '../src/lens/state';
 import { parseSaved } from '../src/lens/settings';
 
 function fakeBridge() {
@@ -89,6 +89,27 @@ describe('draw', () => {
     expect(b.rebuilt + b.upgrades.length).toBeGreaterThan(0);
   });
 
+  it('every page build carries the glasses menu, and a changed menu forces a rebuild', async () => {
+    const b = fakeBridge();
+    const lens = new Lens(b as never);
+    const s = initialState('online');
+    await lens.draw(layout(s));
+    const created = b.createStartUpPageContainer.mock.calls[0] as unknown as [
+      { menuObject?: { menuItems: unknown[] } },
+    ];
+    expect(created[0].menuObject?.menuItems).toEqual([
+      expect.objectContaining({ itemID: MENU_QUIET, itemName: 'Quiet mode' }),
+    ]);
+    await lens.draw(layout({ ...s, conn: 'reconnecting' }));
+    const n = b.rebuilt;
+    await lens.draw(layout(menuPick(s, MENU_QUIET).state));
+    expect(b.rebuilt).toBe(n + 1);
+    const rebuilt = b.rebuildPageContainer.mock.calls.at(-1) as unknown as [{ menuObject?: { menuItems: unknown[] } }];
+    expect(rebuilt[0].menuObject?.menuItems).toEqual([
+      expect.objectContaining({ itemID: MENU_LEAVE_QUIET, itemName: 'Leave quiet mode' }),
+    ]);
+  });
+
   it('a rejected create falls through to rebuild (create is one-shot)', async () => {
     const b = fakeBridge();
     b.createStartUpPageContainer.mockResolvedValueOnce(1 as never);
@@ -102,6 +123,31 @@ describe('draw', () => {
 });
 
 describe('app against the fake gateway', () => {
+  it('a glasses-menu pick reaches the app: Quiet mode blanks the lens; opening the menu keeps the socket', async () => {
+    const b = fakeBridge();
+    const fake = new FakeGateway();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await startApp({
+      bridge: b as never,
+      connect: fake.connect,
+      defaultProfile: { url: 'ws://fake.invalid', token: 'x' },
+    });
+    await tick();
+    const opens = fake.sent.filter((f) => f.t === 'open').length;
+    // The OS menu opening sends FOREGROUND_ENTER: a healthy socket must not be torn down for it.
+    b.fire(ev(OsEventTypeList.FOREGROUND_ENTER_EVENT));
+    await tick();
+    expect(fake.sent.filter((f) => f.t === 'open').length).toBe(opens);
+    b.fire({ menuItemClickEvent: { itemID: MENU_QUIET } } as unknown as EvenHubEvent);
+    await tick();
+    const last = b.upgrades
+      .slice(-3)
+      .map((u) => u.content.trim())
+      .join('');
+    const rebuilt = b.rebuildPageContainer.mock.calls.at(-1) as unknown as [{ textObject: { content: string }[] }];
+    expect(rebuilt[0].textObject.map((t) => t.content.trim()).join('') + last).toBe('');
+  });
+
   it("cold start with sessions waiting lands on Inbox; question → tap the second option: the gateway receives that option's exact payload", async () => {
     const b = fakeBridge();
     const fake = new FakeGateway();

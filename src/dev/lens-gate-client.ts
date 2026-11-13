@@ -27,6 +27,10 @@ export interface LensGateState<S> {
   approval?: boolean;
   /** The capture container is MEANT to hold more lines than it shows (the firmware scrolls it). Otherwise overflow fails. */
   scrolls?: boolean;
+  /** The lens is MEANT to be fully dark here (a quiet mode). Otherwise an all-dark frame fails as blank. */
+  blank?: boolean;
+  /** The screen declares glasses-menu items (tap, then hold): its page build must carry `menuObject`. */
+  menu?: boolean;
   state: S;
 }
 
@@ -152,7 +156,7 @@ export async function runLensGate<S>(app: LensGateApp<S>): Promise<boolean> {
 
   await app.boot(bridge);
   console.log(
-    `[lens-gate] ready ${JSON.stringify({ states: app.states.map(({ name, lookingFor, root, approval, scrolls }) => ({ name, lookingFor, root: !!root, approval: !!approval, scrolls: !!scrolls })) })}`,
+    `[lens-gate] ready ${JSON.stringify({ states: app.states.map(({ name, lookingFor, root, approval, scrolls, blank, menu }) => ({ name, lookingFor, root: !!root, approval: !!approval, scrolls: !!scrolls, blank: !!blank, menu: !!menu })) })}`,
   );
 
   let after = 0;

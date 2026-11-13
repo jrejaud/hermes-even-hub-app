@@ -175,7 +175,6 @@ export function openFor(s: State): GlassesOpen {
  */
 export type Item =
   | { id: string; kind: 'view'; view: GlassesHomeView }
-  | { id: string; kind: 'quiet' }
   | { id: string; kind: 'row'; row: GlassesRow }
   | { id: string; kind: 'option'; index: number }
   | { id: string; kind: 'stop' }
@@ -205,7 +204,7 @@ export function liveAsk(s: State, key: GlassesKey | null): GlassesAsk | null {
 export function items(s: State, sc: Screen = top(s)): Item[] {
   if (sc.kind === 'home') {
     const views: Item[] = (s.home ?? []).map((v) => ({ id: v.id, kind: 'view', view: v }));
-    return s.home ? [...views, { id: 'quiet', kind: 'quiet' }] : views;
+    return views;
   }
   if (sc.kind === 'quiet') return [];
   if (sc.kind === 'view') {
@@ -475,6 +474,41 @@ export interface GestureResult {
 
 const none = (state: State): GestureResult => ({ state, effects: [], pending: {} });
 
+// ------------------------------------------------------------------------------------------- OS menu
+
+/** Ids of the glasses' own tap-then-hold menu items (os-menu.ts). Stable: a click means the same thing always. */
+export const MENU_QUIET = 1;
+export const MENU_LEAVE_QUIET = 2;
+
+/**
+ * The items this screen adds to the glasses' menu. Quiet mode lives here, not on Home (Jordan, 2026-11-13:
+ * "the way you access it should be from tapping and holding the menu"). None while dictating: the mic is open.
+ */
+export function menuActions(s: State): { id: number; label: string }[] {
+  const sc = top(s);
+  if (sc.kind === 'dictate') return [];
+  if (sc.kind === 'quiet') return [{ id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' }];
+  return [{ id: MENU_QUIET, label: 'Quiet mode' }];
+}
+
+/**
+ * A pick from the glasses' menu. Quiet mode sits on top of Home (so the gateway keeps sending banners for every
+ * session) wherever it was picked from; leaving it lands on Home.
+ */
+export function menuPick(s: State, id: number): GestureResult {
+  const valid = menuActions(s).some((a) => a.id === id);
+  if (!valid) return none(s);
+  if (id === MENU_QUIET) {
+    const q: State = { ...s, stack: [{ kind: 'home' }, { kind: 'quiet' }], peek: {} };
+    return { state: q, effects: navEffects(q), pending: {} };
+  }
+  if (id === MENU_LEAVE_QUIET) {
+    const home: State = { ...s, stack: [{ kind: 'home' }] };
+    return { state: home, effects: navEffects(home), pending: {} };
+  }
+  return none(s);
+}
+
 /**
  * Apply one gesture. `drawn` is the state the lens is SHOWING (the last one drawn): a tap resolves against
  * its items, because the live state may have reordered underneath the wearer's finger.
@@ -559,10 +593,6 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   if (!it) return none(s);
   s = setCursor(s, sc, at);
 
-  if (it.kind === 'quiet') {
-    s = push(s, { kind: 'quiet' });
-    return { state: s, effects: navEffects(s), pending: {} };
-  }
   if (it.kind === 'view') {
     s = push(s, { kind: 'view', viewId: it.view.id, name: it.view.name });
     return { state: s, effects: navEffects(s), pending: {} };

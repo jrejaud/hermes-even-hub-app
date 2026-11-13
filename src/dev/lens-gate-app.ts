@@ -39,6 +39,8 @@ export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
         lookingFor: f.looking_for,
         root: !f.state.banner && sc.kind === 'home',
         approval: !!f.state.banner || (sc.kind === 'session' && !!liveAsk(f.state, sc.key)),
+        blank: !f.state.banner && sc.kind === 'quiet',
+        menu: (layout(f.state, GALLERY_NOW).menu ?? []).length > 0,
         state: f.state,
       };
     }),
