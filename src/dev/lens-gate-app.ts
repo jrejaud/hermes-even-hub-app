@@ -6,12 +6,13 @@
  * captured too. Only active when VITE_UI_GALLERY=1 AND the page was opened with ?lensGate=<url>.
  */
 import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
-import { LENS_FRAMES } from './lens-gallery';
+import { GALLERY_NOW, LENS_FRAMES } from './lens-gallery';
 import { runLensGate } from './lens-gate-client';
 import { Lens } from '../lens/draw';
 import { toInput } from '../lens/input';
+import { osMenuPick } from '../lens/os-menu';
 import { layout } from '../lens/layout';
-import { gesture, initialState, liveAsk, top, type State } from '../lens/state';
+import { gesture, initialState, liveAsk, menuPick, top, type State } from '../lens/state';
 
 /** The gallery's fixed clock, so banners and notices never expire mid-run. */
 const T = 1_700_000_000_000;
@@ -20,9 +21,11 @@ export function screenOf(s: State): string {
   if (s.banner) return `banner:${s.banner.key}`;
   const sc = top(s);
   if (sc.kind === 'home') return `home:${s.conn}`;
+  if (sc.kind === 'quiet') return 'quiet';
   if (sc.kind === 'view') return `view:${sc.viewId}`;
   if (sc.kind === 'session') return `session:${sc.key}:${liveAsk(s, sc.key) ? 'ask' : 'thread'}`;
-  return `dictate:${sc.key}:${sc.phase}`;
+  if (sc.kind === 'menu') return `menu:${sc.key}`;
+  return `dictate:${sc.key ?? 'new'}:${sc.phase}`;
 }
 
 export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
@@ -37,16 +40,24 @@ export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
         lookingFor: f.looking_for,
         root: !f.state.banner && sc.kind === 'home',
         approval: !!f.state.banner || (sc.kind === 'session' && !!liveAsk(f.state, sc.key)),
+        blank: !f.state.banner && sc.kind === 'quiet',
+        menu: (layout(f.state, GALLERY_NOW).menu ?? []).length > 0,
+        menuItems: layout(f.state, GALLERY_NOW).menu ?? [],
         state: f.state,
       };
     }),
     boot: async (b) => {
-      await lensFor(b).draw(layout(initialState('connecting')));
+      await lensFor(b).draw(layout(initialState('connecting'), GALLERY_NOW));
     },
     render: async (b, s) => {
-      await lensFor(b).draw(layout(s));
+      await lensFor(b).draw(layout(s, GALLERY_NOW));
     },
     onEvent: (s, e) => {
+      const picked = osMenuPick(e as EvenHubEvent);
+      if (picked !== null) {
+        const next = menuPick(s, picked, T).state;
+        return next === s ? null : next;
+      }
       const inp = toInput(e as EvenHubEvent);
       if (!inp || inp === 'foreground' || inp === 'background' || inp === 'exit') return null;
       const next = gesture(s, inp, T, s).state;

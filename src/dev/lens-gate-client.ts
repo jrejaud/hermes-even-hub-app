@@ -27,6 +27,12 @@ export interface LensGateState<S> {
   approval?: boolean;
   /** The capture container is MEANT to hold more lines than it shows (the firmware scrolls it). Otherwise overflow fails. */
   scrolls?: boolean;
+  /** The lens is MEANT to be fully dark here (a quiet mode). Otherwise an all-dark frame fails as blank. */
+  blank?: boolean;
+  /** The screen declares glasses-menu items (tap, then hold): its page build must carry `menuObject`. */
+  menu?: boolean;
+  /** Its glasses-menu items: the gate opens the simulator's menu and picks each one. */
+  menuItems?: { id: number; label: string }[];
   state: S;
 }
 
@@ -99,6 +105,9 @@ export function traceBridge(bridge: EvenAppBridge): EvenAppBridge {
   });
 }
 
+/** Longest a gallery render may take before the gate moves on. */
+export const RENDER_TIMEOUT_MS = 8_000;
+
 /** Run the app under the gate. Returns false (and does nothing) when not opened by the gate. */
 export async function runLensGate<S>(app: LensGateApp<S>): Promise<boolean> {
   const url = lensGateUrl();
@@ -108,10 +117,23 @@ export async function runLensGate<S>(app: LensGateApp<S>): Promise<boolean> {
   let queue: Promise<void> = Promise.resolve();
   const draw = (s: S, tag: string, extra: Record<string, unknown>) => {
     queue = queue.then(async () => {
+      // A simulator bridge call that never resolves must not stall every later frame (seen as "the app never
+      // acknowledged goto #N" at a different state each run, 2026-11-12): give each render RENDER_TIMEOUT_MS.
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        await app.render(bridge, s);
+        await Promise.race([
+          app.render(bridge, s),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`render did not finish in ${RENDER_TIMEOUT_MS} ms`)),
+              RENDER_TIMEOUT_MS,
+            );
+          }),
+        ]);
       } catch (e) {
         console.error(`[lens-gate] render threw: ${String(e)}`);
+      } finally {
+        clearTimeout(timer);
       }
       console.log(`[lens-gate] ${tag} ${JSON.stringify({ ...extra, screen: app.screenOf(s) })}`);
     });
@@ -136,13 +158,14 @@ export async function runLensGate<S>(app: LensGateApp<S>): Promise<boolean> {
 
   await app.boot(bridge);
   console.log(
-    `[lens-gate] ready ${JSON.stringify({ states: app.states.map(({ name, lookingFor, root, approval, scrolls }) => ({ name, lookingFor, root: !!root, approval: !!approval, scrolls: !!scrolls })) })}`,
+    `[lens-gate] ready ${JSON.stringify({ states: app.states.map(({ name, lookingFor, root, approval, scrolls, blank, menu, menuItems }) => ({ name, lookingFor, root: !!root, approval: !!approval, scrolls: !!scrolls, blank: !!blank, menu: !!menu, menuItems: menuItems ?? [] })) })}`,
   );
 
   let after = 0;
   const poll = async (): Promise<void> => {
     try {
-      const r = await fetch(`${url}/cmd?after=${after}`, { cache: 'no-store' });
+      // Bounded (the server long-polls, so generously): one hung request would otherwise end polling for good.
+      const r = await fetch(`${url}/cmd?after=${after}`, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
       if (r.ok) {
         const cmd = (await r.json()) as { seq?: number; goto?: string } | null;
         if (cmd && typeof cmd.seq === 'number' && cmd.seq > after) {

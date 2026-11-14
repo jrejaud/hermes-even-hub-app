@@ -48,10 +48,7 @@ export function renderPhone(root: HTMLElement, v: PhoneView, onSave: (p: Gateway
   const header = el('header', 'setup-header');
   const status = el('p', statusClass(v.conn), STATUS[v.conn]);
   header.append(
-    el('div', 'setup-title', '', [
-      el('h1', '', 'Aristo Lens'),
-      el('p', 'setup-copy', 'Aristo sessions on the glasses'),
-    ]),
+    el('div', 'setup-title', '', [el('h1', '', 'Agent'), el('p', 'setup-copy', 'Aristo sessions on the glasses')]),
     status,
   );
 

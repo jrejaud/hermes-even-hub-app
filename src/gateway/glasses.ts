@@ -30,8 +30,14 @@ export const GLASSES_PROTOCOL = 1;
 export const GLASSES_PATH = "/api/glasses";
 /** Rows a `view` frame carries when the client does not say (the lens shows 6 to 8). */
 export const GLASSES_VIEW_LIMIT = 20;
-/** Messages a `thread` frame carries when the client does not say. */
+/** Audio one `listen` takes before it ends by itself (as if `listen.end` had come). */
+export const GLASSES_LISTEN_MAX_MS = 60_000;
+/** `partial` frames are sent at most this often. */
+export const GLASSES_PARTIAL_MS = 200;
+/** Messages (yours and the agent's; tool calls do not count) a `thread` frame carries when the client does not say. */
 export const GLASSES_THREAD_LIMIT = 12;
+/** The most a client may ask for: the lens asks for more as the wearer scrolls back (Jordan, 2026-11-13: "scroll up forever"). */
+export const GLASSES_THREAD_MAX = 300;
 
 /** A session, everywhere on the glasses: `<hostId>/<sessionId>` (Aristo's own org key). */
 export type GlassesKey = string;
@@ -119,9 +125,11 @@ export interface GlassesAsk {
   createdAt: string;
 }
 
-/** One message of a thread, as plain text. */
+/** One message of a thread. */
 export interface GlassesLine {
   who: "you" | "agent" | "tool";
+  /** `you` and `agent`: the message as written (markdown, line breaks and indents kept; the lens lays it out).
+   *  `tool`: one line, the call and its argument. */
   text: string;
   /** ISO time, or "" when the log had none. */
   at: string;
@@ -138,8 +146,13 @@ export type GlassesServerFrame =
   | { t: "thread"; row: GlassesRow; ask: GlassesAsk | null; lines: GlassesLine[] }
   /** A new ask in a session the open screen does not show. Tapping it opens that session. */
   | { t: "banner"; key: GlassesKey; title: string; ask: string; promptId: string }
-  /** A request worked (`answer`, `say`, `patch`, `stt` reply with this; `stt` carries `text`). */
-  | { t: "ok"; reqId: string; text?: string }
+  /** A request worked (`answer`, `say`, `patch`, `stt`, `listen.end`, `listen.cancel`, `interrupt`, `create` reply with
+   *  this). `stt` and `listen.end` carry `text`; `create` carries the new session's `key`. */
+  | { t: "ok"; reqId: string; text?: string; key?: GlassesKey }
+  /** Streaming speech to text (SC-9704): sent while a `listen` is open whenever the recogniser returns words, at most
+   *  ~5 per second. `final` = all settled text so far, `interim` = the not-yet-final tail (may still change). Show
+   *  `final + interim`; the transcript to send is the `ok` that answers `listen.end`. */
+  | { t: "partial"; reqId: string; final: string; interim: string }
   /** A request refused. `gone` = the prompt was already answered or withdrawn; `changed` = the payload is not one
    *  this prompt offers; `host-down` = the owning host did not answer; `bad` = the frame itself is wrong. */
   | { t: "refused"; reqId: string; reason: "gone" | "changed" | "host-down" | "bad" | "error"; message: string }
@@ -166,6 +179,29 @@ export type GlassesClientFrame =
   /** Speech to text on the views home (whisper.cpp): base64 16 kHz mono signed 16-bit little-endian PCM, ≤ 60 s.
    *  The reply is `ok` with `text`; nothing is sent anywhere until the lens sends `say` or `answer`. */
   | { t: "stt"; reqId: string; pcm: string }
+  /** Streaming speech to text (SC-9704, Soniox real-time on the views home; the key never leaves the server). Start a
+   *  stream for this socket while the wearer holds to talk; `lang` = language hints (default `["en"]`, e.g.
+   *  `["en", "ja"]`). No reply on success: `partial` frames follow, and `listen.end` gets the `ok`. Refused (same
+   *  reqId) when the recogniser cannot start or fails mid-stream. One listen per socket: a new `listen` cancels the
+   *  open one, which is answered `refused` `gone` ("replaced"); a socket that closes cancels its listen. */
+  | { t: "listen"; reqId: string; lang?: string[] }
+  /** Audio for the open listen with that reqId: base64 16 kHz mono signed 16-bit little-endian PCM (~100-200 ms a
+   *  frame). No reply. After 60 s of audio the listen ends by itself, exactly as if `listen.end` had come: the
+   *  `ok` with `text` is sent then, and a later `listen.end` for it gets the same `ok` again. */
+  | { t: "audio"; reqId: string; pcm: string }
+  /** The wearer let go: flush, wait for the final words, reply `ok` with `text` = the whole final transcript,
+   *  trimmed ("" if nothing was heard). Nothing is sent to a session: the lens confirms, then sends `say`, `answer`
+   *  or `create`. */
+  | { t: "listen.end"; reqId: string }
+  /** Discard the open listen: the recogniser is closed and `ok` (no text) is the reply. */
+  | { t: "listen.cancel"; reqId: string }
+  /** Stop a working session, as the web's Stop does (session.interrupt on the owning host). `ok`, or `refused`:
+   *  `gone` = it is not working (or not listed), `host-down` = the owning host did not answer. */
+  | { t: "interrupt"; reqId: string; key: GlassesKey }
+  /** Start a new Aristo session with `text` as its first prompt, origin `glasses`, on the views home in the folder
+   *  New Session would pick for it. `viewId` = the view the wearer started from (kept for a per-view default; views
+   *  define none today). Reply `ok` with the new session's `key`. */
+  | { t: "create"; reqId: string; text: string; viewId?: string }
   | { t: "ping" };
 
 /** The marker for a raw status, for the presenter (not the lens). */

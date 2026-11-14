@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import type { GlassesServerFrame } from '../src/gateway/glasses';
 import { ASKS, HOME, ROWS, threadFrame, viewFrame } from '../src/dev/fake-gateway';
+import { layout } from '../src/lens/layout';
 import {
   BANNER_MS,
   cursorIndex,
   expire,
+  glideFrames,
   gesture,
   initialState,
   items,
   landing,
+  MAX_LISTEN_MS,
+  MENU_LEAVE_QUIET,
+  MENU_NEW_AGENT,
+  MORE_MESSAGES,
+  MENU_QUIET,
+  menuActions,
+  menuPick,
+  micEnded,
+  peekFor,
+  anchorFor,
   receive,
   reply,
   restore,
@@ -109,14 +121,47 @@ describe('the cursor', () => {
   });
 });
 
-describe('voice', () => {
+describe('voice (hold to talk, streamed: v2 SC-9703)', () => {
+  /** Hold, then let go a second later (a real utterance, not an accidental press). */
+  const talk = (s: State) => {
+    const hold = gesture(s, 'hold', T);
+    const listenId = Object.keys(hold.pending)[0];
+    const rel = gesture(hold.state, 'release', T + 1_000);
+    return { hold, rel, listenId };
+  };
+  const finish = (st: State, listenId: string, text: string) =>
+    reply(st, { kind: 'listen' }, { t: 'ok', reqId: listenId, text }, T).state;
+
+  it('hold opens the mic and starts a listen; release flushes it with listen.end', () => {
+    const { hold, rel, listenId } = talk(open(1));
+    expect(top(hold.state)).toMatchObject({ kind: 'dictate', phase: 'listening', listenId });
+    expect(hold.effects).toEqual([
+      { kind: 'send', frame: { t: 'listen', reqId: listenId, lang: ['en', 'ja'] } },
+      { kind: 'micStart', reqId: listenId },
+    ]);
+    expect(rel.effects).toEqual([{ kind: 'micStop' }, { kind: 'send', frame: { t: 'listen.end', reqId: listenId } }]);
+    expect(top(rel.state)).toMatchObject({ phase: 'finishing' });
+  });
+
+  it('a hold shorter than 600 ms is discarded (listen.cancel), nothing to confirm', () => {
+    const hold = gesture(open(3), 'hold', T);
+    const id = Object.keys(hold.pending)[0];
+    const rel = gesture(hold.state, 'release', T + 200);
+    expect(sends(rel)).toEqual([{ t: 'listen.cancel', reqId: id }]);
+    expect(top(rel.state).kind).toBe('session');
+  });
+
+  it('partials show the words while holding; stale ones are ignored', () => {
+    const { hold, listenId } = talk(open(3));
+    const s = receive(hold.state, { t: 'partial', reqId: listenId, final: 'deploy the', interim: 'stag' }, T).state;
+    expect(top(s)).toMatchObject({ text: 'deploy the', interim: 'stag' });
+    const stale = receive(s, { t: 'partial', reqId: 'r999', final: 'other', interim: '' }, T).state;
+    expect(top(stale)).toMatchObject({ text: 'deploy the' });
+  });
+
   it('dictation on a permission answers with text, which Aristo treats as a deny; never an approval option', () => {
-    let s = press(open(1), 'hold');
-    expect(top(s)).toMatchObject({ kind: 'dictate', phase: 'listening', via: 'hold' });
-    const rel = gesture(s, 'release', T);
-    expect(rel.effects).toEqual([{ kind: 'transcribe', reqId: expect.any(String) }]);
-    const sttId = Object.keys(rel.pending)[0];
-    s = reply(rel.state, rel.pending[sttId], { t: 'ok', reqId: sttId, text: 'yes go ahead' }, T).state;
+    const { rel, listenId } = talk(open(1));
+    const s = finish(rel.state, listenId, 'yes go ahead');
     expect(top(s)).toMatchObject({ phase: 'confirm', text: 'yes go ahead' });
     const send = gesture(s, 'tap', T);
     expect(sends(send)).toEqual([
@@ -126,12 +171,29 @@ describe('voice', () => {
   });
 
   it('dictation on a session with no ask sends a message', () => {
-    let s = press(open(3), 'hold', 'release');
-    s = {
-      ...s,
-      stack: [...s.stack.slice(0, -1), { ...(top(s) as never as object), phase: 'confirm', text: 'hi' } as never],
-    };
-    expect(sends(gesture(s, 'tap', T))[0]).toMatchObject({ t: 'say', key: 'overlord/g2', text: 'hi' });
+    const { rel, listenId } = talk(open(3));
+    expect(sends(gesture(finish(rel.state, listenId, 'hi'), 'tap', T))[0]).toMatchObject({
+      t: 'say',
+      key: 'overlord/g2',
+      text: 'hi',
+    });
+  });
+
+  it('nothing heard shows the empty screen, not a blank confirm', () => {
+    const { rel, listenId } = talk(open(3));
+    expect(top(finish(rel.state, listenId, '  '))).toMatchObject({ phase: 'empty' });
+  });
+
+  it('a refused listen (Soniox down, out of credit) stops the mic and says why', () => {
+    const { hold, listenId } = talk(open(3));
+    const r = reply(
+      hold.state,
+      { kind: 'listen' },
+      { t: 'refused', reqId: listenId, reason: 'host-down', message: 'speech offline' },
+      T,
+    );
+    expect(top(r.state)).toMatchObject({ phase: 'failed', error: 'speech offline' });
+    expect(r.effects).toEqual([{ kind: 'micStop' }]);
   });
 
   it('an ask without free text cannot be dictated to', () => {
@@ -140,16 +202,73 @@ describe('voice', () => {
     expect(s.notice).toBeNull();
   });
 
-  it("a tapped 'Talk to it' row ends listening on the next tap", () => {
-    const s = press(open(3), 'tap'); // Talk to it
-    expect(top(s)).toMatchObject({ kind: 'dictate', via: 'tap', phase: 'listening' });
-    expect(top(press(s, 'tap'))).toMatchObject({ phase: 'transcribing' });
+  it('a tap ends listening when the release was lost', () => {
+    const hold = gesture(open(3), 'hold', T);
+    expect(top(gesture(hold.state, 'tap', T + 1_000).state)).toMatchObject({ phase: 'finishing' });
+  });
+
+  it('the 60 s cap ends a recording as if the wearer let go', () => {
+    const hold = gesture(open(3), 'hold', T);
+    const r = micEnded(hold.state, T + MAX_LISTEN_MS);
+    expect(top(r.state)).toMatchObject({ phase: 'finishing' });
+    expect(sends(r)[0]).toMatchObject({ t: 'listen.end' });
   });
 
   it('hold on a list row opens that session underneath and listens', () => {
     const r = gesture(press(inbox(), 'down'), 'hold', T);
     expect(r.state.stack.map((x) => x.kind)).toEqual(['home', 'view', 'session', 'dictate']);
-    expect(sends(r)).toEqual([{ t: 'open', screen: 'session', key: 'chiba/deploy' }]);
+    expect(sends(r)[0]).toEqual({ t: 'open', screen: 'session', key: 'chiba/deploy' });
+    expect(sends(r)[1]).toMatchObject({ t: 'listen' });
+  });
+
+  it('hold on Home dictates a NEW session; its ok opens that session', () => {
+    const { rel, listenId } = talk(online());
+    const confirm = finish(rel.state, listenId, 'audit the churn numbers');
+    expect(top(confirm)).toMatchObject({ purpose: 'create', phase: 'confirm' });
+    const send = gesture(confirm, 'tap', T);
+    expect(sends(send)).toEqual([{ t: 'create', reqId: expect.any(String), text: 'audit the churn numbers' }]);
+    const reqId = Object.keys(send.pending)[0];
+    const done = reply(send.state, send.pending[reqId], { t: 'ok', reqId, key: 'chiba/new-1' }, T);
+    expect(top(done.state)).toMatchObject({ kind: 'session', key: 'chiba/new-1' });
+    expect(done.effects[0]).toEqual({ kind: 'send', frame: { t: 'open', screen: 'session', key: 'chiba/new-1' } });
+  });
+});
+
+describe('conversation and its menu (v2 SC-9703)', () => {
+  const long = (): State => {
+    const t = threadFrame(ROWS[3].key);
+    const lines = Array.from({ length: 30 }, (_, i) => ({
+      who: i % 2 ? ('agent' as const) : ('you' as const),
+      text: `line ${i}`,
+    }));
+    return feed(press(inbox(), 'down', 'down', 'down', 'tap'), { ...t, lines });
+  };
+
+  it('swipe up pages back through the conversation, down returns to following the newest', () => {
+    const s = long();
+    const key = ROWS[3].key;
+    const up = press(s, 'up');
+    expect(typeof up.anchors[key]).toBe('number');
+    expect(press(up, 'down', 'down', 'down', 'down', 'down', 'down').anchors[key]).toBeNull();
+  });
+
+  it('tap opens the menu; Stop on a working session sends interrupt and stays on the conversation', () => {
+    let s = open(3);
+    s = { ...s, thread: { ...s.thread!, row: { ...s.thread!.row, mark: 'working' } } };
+    const m = press(s, 'tap');
+    expect(top(m).kind).toBe('menu');
+    expect(items(m).map((i) => i.kind)).toEqual(['stop', 'done', 'close']);
+    const r = gesture(m, 'tap', T);
+    expect(sends(r)).toEqual([{ t: 'interrupt', reqId: expect.any(String), key: 'overlord/g2' }]);
+    expect(top(r.state)).toMatchObject({ kind: 'session', key: 'overlord/g2' });
+  });
+
+  it('Mark done patches and goes back to the list', () => {
+    const m = press(open(3), 'tap');
+    const at = items(m).findIndex((i) => i.kind === 'done');
+    const r = gesture(press(m, ...Array<Gesture>(at).fill('down')), 'tap', T);
+    expect(sends(r)[0]).toMatchObject({ t: 'patch', key: 'overlord/g2', done: true });
+    expect(top(r.state).kind).toBe('view');
   });
 });
 
@@ -207,12 +326,12 @@ describe('resume', () => {
 describe('a dictated answer gets its reply (review finding, SC-9500)', () => {
   const sendDictatedAnswer = () => {
     const hold = gesture(open(1), 'hold', T);
-    const rel = gesture(hold.state, 'release', T);
-    const sttId = Object.keys(rel.pending)[0];
+    const listenId = Object.keys(hold.pending)[0];
+    const rel = gesture(hold.state, 'release', T + 1_000);
     const confirm = reply(
       rel.state,
-      rel.pending[sttId],
-      { t: 'ok', reqId: sttId, text: 'no, use the staging host' },
+      hold.pending[listenId],
+      { t: 'ok', reqId: listenId, text: 'no, use the staging host' },
       T,
     ).state;
     const send = gesture(confirm, 'tap', T);
@@ -232,5 +351,277 @@ describe('a dictated answer gets its reply (review finding, SC-9500)', () => {
     const r = reply(s, pending, { t: 'refused', reqId, reason: 'gone', message: '' }, T);
     expect(top(r.state)).toMatchObject({ kind: 'dictate', phase: 'failed', error: 'already answered' });
     expect(r.state.answered).not.toContain('p-deploy');
+  });
+});
+
+describe('hold while offline (glasses gate dead-frame, SC-9703)', () => {
+  it('does nothing when unconfigured or reconnecting: no listen, no mic', () => {
+    for (const s of [initialState('unconfigured'), { ...online(), conn: 'reconnecting' as const }]) {
+      const r = gesture(s, 'hold', T);
+      expect(r.state).toBe(s);
+      expect(r.effects).toEqual([]);
+    }
+  });
+});
+
+describe('reading the conversation behind an ask (Jordan, 2026-11-13)', () => {
+  // "If I'm in high priority, I can see the questions, but I don't see a way that I can scroll up and see
+  // the actual session." Up past the first option reads it; down off the newest page or a tap comes back.
+  const key = 'overlord/kill';
+  it('up on the first option opens the conversation; up again pages back; down returns to the options', () => {
+    const s = open(0);
+    expect(cursorIndex(s)).toBe(0);
+    const peeking = press(s, 'up');
+    expect(peekFor(peeking, key)).toBeTypeOf('number');
+    const newest = peekFor(peeking, key)!;
+    const older = press(peeking, 'up');
+    if (newest > 0) expect(peekFor(older, key)!).toBeLessThan(newest);
+    let back = older;
+    for (let i = 0; i < 10 && peekFor(back, key) !== undefined; i++) back = press(back, 'down');
+    expect(peekFor(back, key)).toBeUndefined();
+    expect(cursorIndex(back)).toBe(0);
+  });
+
+  it('a tap while reading goes back to the options and answers nothing', () => {
+    const peeking = press(open(0), 'up');
+    const r = gesture(peeking, 'tap', T, peeking);
+    expect(sends(r)).toEqual([]);
+    expect(peekFor(r.state, key)).toBeUndefined();
+    expect(top(r.state)).toMatchObject({ kind: 'session', key });
+  });
+
+  it('up below the first option still moves the cursor', () => {
+    const s = press(open(0), 'down', 'up');
+    expect(cursorIndex(s)).toBe(0);
+    expect(peekFor(s, key)).toBeUndefined();
+  });
+
+  it('back from a session forgets the reading position', () => {
+    const s = press(open(0), 'up', 'double');
+    expect(s.peek[key]).toBeUndefined();
+  });
+});
+
+describe('quiet mode (Jordan, 2026-11-13)', () => {
+  // "I can run it in a way where it doesn't actually show anything … if an agent needs me, it would show up
+  // like a notification … I would tap a button and be taken to the session."
+  const banner: GlassesServerFrame = {
+    t: 'banner',
+    key: 'box/churn',
+    title: 'Churn audit',
+    ask: 'Include trial users?',
+    promptId: 'p-churn',
+  };
+  const quiet = (): State => menuPick(online(), MENU_QUIET, T).state;
+
+  // Jordan, 2026-11-13: "the way you access it should be from tapping and holding the menu … add quiet mode in
+  // there"; "quiet mode should just look totally quiet".
+  it('Home has no Quiet row; the glasses menu offers Quiet mode, and Leave quiet mode once in it', () => {
+    expect(items(online()).map((i) => i.kind)).not.toContain('quiet');
+    expect(menuActions(online())).toEqual([
+      { id: MENU_QUIET, label: 'Quiet mode' },
+      { id: MENU_NEW_AGENT, label: 'New session' },
+    ]);
+    expect(menuActions(quiet())).toEqual([
+      { id: MENU_LEAVE_QUIET, label: 'Leave quiet mode' },
+      { id: MENU_NEW_AGENT, label: 'New session' },
+    ]);
+    expect(menuActions({ ...online(), conn: 'reconnecting' })).toEqual([{ id: MENU_QUIET, label: 'Quiet mode' }]);
+    expect(menuActions(press(online(), 'hold'))).toEqual([]); // dictating: the mic is open
+  });
+
+  it('Quiet mode from inside a session sits on top of Home (the gateway is told Home, so banners keep coming)', () => {
+    const inSession = press(online(), 'tap', 'tap');
+    expect(top(inSession).kind).not.toBe('home');
+    const r = menuPick(inSession, MENU_QUIET, T);
+    expect(r.state.stack).toEqual([{ kind: 'home' }, { kind: 'quiet' }]);
+    expect(r.effects).toContainEqual({ kind: 'send', frame: { t: 'open', screen: 'home' } });
+    expect(menuPick(r.state, MENU_LEAVE_QUIET, T).state.stack).toEqual([{ kind: 'home' }]);
+  });
+
+  // Jordan, 2026-11-13: "we should also put like new agent there".
+  it('New session from the glasses menu opens the mic for a new session from any screen; only a tap ends it', () => {
+    for (const from of [online(), quiet(), press(online(), 'tap', 'tap')]) {
+      const r = menuPick(from, MENU_NEW_AGENT, T);
+      expect(top(r.state)).toMatchObject({ kind: 'dictate', purpose: 'create', phase: 'listening', key: null });
+      expect(r.effects.map((e) => e.kind)).toEqual(['send', 'micStart']);
+      // The release that trails the menu's tap-then-hold does not end it; a tap does.
+      const later = (st: State, g: Gesture) => gesture(st, g, T + 3_000).state;
+      expect(top(later(r.state, 'release'))).toMatchObject({ kind: 'dictate', phase: 'listening' });
+      expect(top(later(r.state, 'tap'))).toMatchObject({ kind: 'dictate', phase: 'finishing' });
+    }
+    expect(menuPick({ ...online(), conn: 'reconnecting' }, MENU_NEW_AGENT, T).effects).toEqual([]);
+  });
+
+  it('a menu id this screen does not offer changes nothing', () => {
+    const s = online();
+    expect(menuPick(s, MENU_LEAVE_QUIET, T).state).toBe(s);
+    expect(menuPick(s, 99, T).state).toBe(s);
+  });
+
+  it('the quiet lens draws nothing at all, not even a corner label, even while reconnecting', () => {
+    for (const s of [quiet(), { ...quiet(), conn: 'reconnecting' as const }]) {
+      const f = layout(s);
+      expect([f.left, f.right, ...f.body.map((b) => b.text)].join('')).toBe('');
+    }
+  });
+
+  it('a banner in quiet mode stays until dismissed; Answer now opens the session, answering returns to quiet', () => {
+    const s = feed(quiet(), banner);
+    expect(expire(s, T + BANNER_MS * 10).banner?.key).toBe('box/churn');
+    const opened = press(s, 'tap');
+    expect(top(opened)).toMatchObject({ kind: 'session', key: 'box/churn' });
+    expect(top(press(opened, 'double'))).toEqual({ kind: 'quiet' });
+  });
+
+  it('Later or a double tap on the banner goes back to the blank lens', () => {
+    expect(top(press(feed(quiet(), banner), 'double'))).toEqual({ kind: 'quiet' });
+    const later = press(feed(quiet(), banner), 'down', 'tap');
+    expect(later.banner).toBeNull();
+    expect(top(later)).toEqual({ kind: 'quiet' });
+  });
+
+  it('tap or double tap on the blank lens goes back to Home; swipes do nothing', () => {
+    expect(top(press(quiet(), 'tap'))).toEqual({ kind: 'home' });
+    expect(top(press(quiet(), 'double'))).toEqual({ kind: 'home' });
+    expect(top(press(quiet(), 'up', 'down'))).toEqual({ kind: 'quiet' });
+  });
+
+  it('a cold start with more sessions waiting does not pull the wearer out of quiet mode', () => {
+    const s = quiet();
+    expect(s.home?.[0]?.needs).toBeGreaterThan(0);
+    expect(top(landing(s, { ...toSaved(s, T), inboxNeeds: 0 }))).toEqual({ kind: 'quiet' });
+  });
+});
+
+// Jordan, 2026-11-13: "instead of changing the entire page at once, the scrolling should be smooth".
+describe('a swipe glides the conversation a line at a time', () => {
+  const key = ROWS[3].key;
+  const long = (): State => {
+    const t = threadFrame(key);
+    const lines = Array.from({ length: 30 }, (_, i) => ({ who: 'agent' as const, text: `line ${i}`, at: '' }));
+    return feed(press(inbox(), 'down', 'down', 'down', 'tap'), { ...t, lines });
+  };
+
+  it('swipe up: the in-between frames step the anchor one line each, ending next to the target', () => {
+    const s = long();
+    const up = press(s, 'up');
+    const target = anchorFor(up, key)!;
+    const frames = glideFrames(s, up);
+    // A 3-line step has 2 frames in between: target+2, target+1.
+    expect(frames.map((f) => anchorFor(f, key))).toEqual([target + 2, target + 1]);
+  });
+
+  it('no glide for a cut: opening another screen, or the menu', () => {
+    const s = long();
+    expect(glideFrames(s, press(s, 'tap'))).toEqual([]);
+    expect(glideFrames(inbox(), s)).toEqual([]);
+  });
+});
+
+// Jordan, 2026-11-13: tool calls stay off the lens, including the "what it is doing" line.
+describe('the activity line never names a tool', () => {
+  const key = ROWS[3].key;
+  const working = (detail: string, promptId: string | null): State => {
+    const t = threadFrame(key);
+    return feed(press(inbox(), 'down', 'down', 'down', 'tap'), {
+      ...t,
+      row: { ...t.row, mark: 'working', detail, promptId },
+    });
+  };
+  const text = (s: State): string =>
+    layout(s)
+      .body.map((b) => b.text)
+      .join('\n');
+
+  it('a working session shows "working", not the tool it runs', () => {
+    const out = text(working('Edit packages/shared/view-engine.ts', null));
+    expect(out).not.toContain('view-engine');
+    expect(out).toContain('working');
+  });
+});
+
+// Jordan, 2026-11-13: "can you make it so I can scroll down, scroll up forever? I can only scroll like five screens".
+describe('scrolling back through a long session', () => {
+  const key = 'overlord/g2';
+  const msgs = (from: number, n: number) =>
+    Array.from({ length: n }, (_, i) => ({ who: 'agent' as const, text: `message ${from + i}`, at: `t${from + i}` }));
+  const frame = (lines: ReturnType<typeof msgs>): GlassesServerFrame => ({ ...threadFrame(key), lines });
+  const opened = (): State => feed(open(ROWS.findIndex((r) => r.key === key)), frame(msgs(100, 12)));
+
+  it('scrolling up past the top asks the gateway for more messages, and the open carries the bigger limit', () => {
+    let s = opened();
+    const sent = [];
+    for (let i = 0; i < 10; i++) {
+      const r = gesture(s, 'up', T);
+      sent.push(...r.effects);
+      s = r.state;
+    }
+    expect(sent).toEqual([{ kind: 'send', frame: { t: 'open', screen: 'session', key, limit: 12 + MORE_MESSAGES } }]);
+  });
+
+  it('when the older messages land, the screen keeps showing the same line (no jump)', () => {
+    let s = opened();
+    for (let i = 0; i < 10; i++) s = press(s, 'up');
+    s = gesture(s, 'up', T).state;
+    const before = layout(s).body[0]!.text;
+    const after = feed(s, frame([...msgs(76, 24), ...msgs(100, 12)]));
+    expect(layout(after).body[0]!.text).toBe(before);
+  });
+
+  it('a frame that came back short (the whole session is loaded) asks for nothing more', () => {
+    let s = feed(open(ROWS.findIndex((r) => r.key === key)), frame(msgs(100, 5)));
+    for (let i = 0; i < 5; i++) s = press(s, 'up');
+    expect(gesture(s, 'up', T).effects).toEqual([]);
+  });
+
+  it('the header does not change while the text scrolls (no page number)', () => {
+    let s = opened();
+    const right = layout(s).right;
+    for (let i = 0; i < 3; i++) {
+      s = press(s, 'up');
+      expect(layout(s).right).toBe(right);
+    }
+  });
+});
+
+describe('starting the app', () => {
+  // Jordan, 2026-11-13: "don't start automatically in quiet mode when you start the app".
+  it('never restores quiet mode: it opens on the screen under it', () => {
+    const q = menuPick(online(), MENU_QUIET, T).state;
+    expect(restore(initialState(), toSaved(q, T)).stack).toEqual([{ kind: 'home' }]);
+  });
+});
+
+// Review finding Ffdf3853d84 (2026-11-14): a banner tap, or a late `create` reply, popped a recording whose mic was
+// still open, so audio kept streaming to the gateway for a listen nobody would end.
+describe('an open mic is never abandoned', () => {
+  const banner: GlassesServerFrame = {
+    t: 'banner',
+    key: 'box/churn',
+    title: 'Churn audit',
+    ask: 'Include trials?',
+    promptId: 'p-c',
+  };
+  const listening = (): State => press(online(), 'hold');
+
+  it('a banner that arrives mid-recording does not take the tap: the tap ends the recording', () => {
+    const s = feed(listening(), banner);
+    expect(top(s)).toMatchObject({ kind: 'dictate', phase: 'listening' });
+    const r = gesture(s, 'tap', T + 3_000);
+    expect(top(r.state)).toMatchObject({ kind: 'dictate', phase: 'finishing' });
+  });
+
+  it('a create reply that lands while a NEW recording is open leaves that recording alone', () => {
+    const s = listening();
+    const reqs = Object.keys(gesture(online(), 'hold', T).pending);
+    const after = reply(
+      s,
+      { kind: 'create' } as never,
+      { t: 'ok', reqId: 'r-old', key: 'chiba/new' } as never,
+      T,
+    ).state;
+    expect(top(after)).toMatchObject({ kind: 'dictate', phase: 'listening' });
+    expect(reqs.length).toBeGreaterThan(0);
   });
 });

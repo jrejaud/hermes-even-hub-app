@@ -1,8 +1,20 @@
 import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
-import { LENS_FRAMES } from '../src/dev/lens-gallery';
+import { GALLERY_NOW, LENS_FRAMES } from '../src/dev/lens-gallery';
 import { slots } from '../src/lens/draw';
-import { BODY_BOXES, BOX_BYTES, LINE, SCREEN, TEXT_W, block, drawable, fit, layout, row } from '../src/lens/layout';
+import {
+  BODY_BOXES,
+  BOX_BYTES,
+  LINE,
+  SCREEN,
+  TEXT_W,
+  block,
+  drawable,
+  fit,
+  layout,
+  row,
+  windowStart,
+} from '../src/lens/layout';
 
 const bytes = (t: string): number => new TextEncoder().encode(t).length;
 /** Firmware font has no emoji; anything astral is dropped on the lens. */
@@ -11,11 +23,17 @@ const EMOJI = /[\u{1F000}-\u{1FFFF}☀-⛿✀-➿]/u;
 describe('every gallery frame fits the lens', () => {
   for (const f of LENS_FRAMES) {
     it(f.name, () => {
-      const frame = layout(f.state);
+      const frame = layout(f.state, GALLERY_NOW);
       expect(frame.body.length).toBeLessThanOrEqual(BODY_BOXES);
       const all = slots(frame);
       expect(all.length).toBeLessThanOrEqual(8);
       expect(all.filter((s) => s.capture)).toHaveLength(1);
+      // The header is one box and takes input; it has room to spare for its one line, so the firmware does not
+      // treat it as overflowing and nudge it on each swipe (Jordan, 2026-11-14), and swipes are not spent scrolling it.
+      const head = all.find((s) => s.capture)!;
+      expect(head.y).toBe(0);
+      expect(head.h - 2 * 2).toBeGreaterThanOrEqual(LINE + 4);
+      expect(all.filter((s) => s.y === 0)).toHaveLength(1);
       for (const s of all) {
         expect(s.y + s.h, `${s.name} below the screen`).toBeLessThanOrEqual(SCREEN.h);
         expect(s.x + s.w).toBeLessThanOrEqual(SCREEN.w);
@@ -23,7 +41,8 @@ describe('every gallery frame fits the lens', () => {
         const missing = [...s.text].filter((ch) => ch !== '\n' && getAdvW(ch.codePointAt(0)!) === 0);
         expect(missing, `${s.name} draws glyphs the firmware lacks`).toEqual([]);
         const lines = s.text.split('\n');
-        expect(lines.length * LINE, `${s.name} has more lines than its box`).toBeLessThanOrEqual(s.h);
+        // The empty input strip draws nothing; only boxes with text must hold their lines.
+        if (s.text) expect(lines.length * LINE, `${s.name} has more lines than its box`).toBeLessThanOrEqual(s.h);
         for (const l of lines)
           expect(getTextWidth(l), `${s.name}: "${l}" wider than its box`).toBeLessThanOrEqual(s.w - 4);
       }
@@ -88,21 +107,58 @@ describe('glasses gate critic finds (2026-11-11)', () => {
 });
 
 describe('brightness hierarchy (rule 3), with the widest steps the scale allows', () => {
-  const frame = (name: string) => layout(LENS_FRAMES.find((f) => f.name === name)!.state);
+  const frame = (name: string) => layout(LENS_FRAMES.find((f) => f.name === name)!.state, GALLERY_NOW);
   it('home: cursor row 4, need-you rows 3, quiet rows 1', () => {
     const b = frame('03-home').body;
     expect(b[0].bright).toBe(4);
     expect(b.find((x) => x.text.includes('Foreground'))!.bright).toBe(3);
-    expect(b.find((x) => x.text.includes('Daemon'))!.bright).toBe(1);
+    expect(b.find((x) => x.text.includes('From glasses'))!.bright).toBe(1);
   });
-  it('a question: the asked text 4, its heading 1', () => {
+  it('a question: the asked text 4 (no heading that only repeats "question"), a heading when there is one is 1', () => {
     const b = frame('11-question').body;
-    expect(b[1].bright).toBe(4);
-    expect(b[0].bright).toBe(1);
+    expect(b[0].bright).toBe(4);
+    expect(b[0].text).toContain('Which do I pause');
+    const sub = frame('13-question-subagent-more').body;
+    expect(sub[0]).toMatchObject({ bright: 1 });
+    expect(sub[0].text).toMatch(/^Explore asks:/);
+    expect(sub[1].bright).toBe(4);
   });
   it('a working session: the message 4, the activity line 1', () => {
     const b = frame('14-working-session').body;
     expect(b[0].bright).toBe(4);
     expect(b[1].bright).toBe(1);
+  });
+});
+
+describe('session rows: marker, title, age (Jordan, 2026-11-13)', () => {
+  it('a view row carries no detail ("Bash: …" command) and ends with its age at the right edge', () => {
+    const f = LENS_FRAMES.find((x) => x.name === '06-view-inbox')!;
+    const rows = layout(f.state, GALLERY_NOW).body.map((b) => b.text);
+    expect(rows.some((r) => /ssh chiba|Which do I pause/.test(r))).toBe(false);
+    for (const r of rows.filter((x) => /\d+[smhd]( ▽)?$/.test(x))) {
+      expect(r).not.toMatch(/ - \d+[smhd]/);
+      expect(getTextWidth(r)).toBeGreaterThan(TEXT_W - 40);
+      expect(getTextWidth(r)).toBeLessThanOrEqual(TEXT_W);
+    }
+  });
+
+  it('a short row is padded out to the edge, a long title is cut and the age survives', () => {
+    const short = row(false, '! Fix it', '', { tail: '2m' });
+    expect(short).toMatch(/^.*! Fix it {3,}2m$/);
+    const long = row(false, '! ' + 'very long title '.repeat(10), '', { tail: '14m' });
+    expect(long.endsWith('14m')).toBe(true);
+    expect(long).toContain('…');
+    expect(getTextWidth(long)).toBeLessThanOrEqual(TEXT_W);
+  });
+});
+
+// Design rule 11 (Jordan, 2026-11-13): lists page; the cursor is never pinned mid-screen while rows slide under it.
+describe('list paging', () => {
+  it('the cursor walks to the last row of a page, then the next page flips in with it on the top row', () => {
+    expect([0, 1, 5].map((c) => windowStart(c, 14, 6))).toEqual([0, 0, 0]);
+    expect([6, 11].map((c) => windowStart(c, 14, 6))).toEqual([6, 6]);
+    expect(windowStart(12, 14, 6)).toBe(12); // a short last page, not a window backed up to fill it
+    expect(windowStart(3, 5, 6)).toBe(0);
+    expect(windowStart(99, 14, 6)).toBe(12);
   });
 });

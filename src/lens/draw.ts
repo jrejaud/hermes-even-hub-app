@@ -18,7 +18,12 @@ import {
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk';
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk';
-import { BODY_TOP, BOX_GAP, HEADER_H, PAD, SCREEN, boxHeight, rightWidth, type LensFrame } from './layout';
+import { osMenuKey, osMenuObject } from './os-menu';
+import { getTextWidth } from '@evenrealities/pretext';
+import { BODY_TOP, BOX_GAP, PAD, SCREEN, boxHeight, type LensFrame } from './layout';
+
+/** Text width inside the header box (padding both sides, a little slack for the firmware's rounding). */
+const HEADER_TEXT_W = SCREEN.w - 2 * PAD - 12;
 
 interface Slot {
   id: number;
@@ -32,21 +37,25 @@ interface Slot {
   capture: boolean;
 }
 
-/** The containers a frame needs. Header-left carries input capture: it is the one box that always exists. */
+/**
+ * The containers a frame needs. The header is ONE box (where you are, then the status pushed to the right edge),
+ * and it takes input. It is as tall as the space above the body (BODY_TOP - BOX_GAP), not just one line: a box whose
+ * text barely fits counts as overflowing, and the firmware then scrolls it a little on each swipe (the title
+ * "moving up and down slightly", Jordan 2026-11-14). An empty input strip fixed that but was too short to hold a line,
+ * so swipes were spent scrolling inside it and felt slow; Jordan chose the title box over a shorter conversation.
+ */
 export function slots(f: LensFrame): Slot[] {
-  const rw = rightWidth(f.right);
   const out: Slot[] = [
-    { id: 1, name: 'hl', x: 0, y: 0, w: SCREEN.w - rw, h: HEADER_H, text: f.left, bright: f.leftBright, capture: true },
     {
-      id: 2,
-      name: 'hr',
-      x: SCREEN.w - rw,
+      id: 1,
+      name: 'hd',
+      x: 0,
       y: 0,
-      w: rw,
-      h: HEADER_H,
-      text: f.right,
-      bright: f.rightBright,
-      capture: false,
+      w: SCREEN.w,
+      h: BODY_TOP - BOX_GAP,
+      text: headerText(f),
+      bright: f.leftBright,
+      capture: true,
     },
   ];
   let y = BODY_TOP;
@@ -68,10 +77,21 @@ export function slots(f: LensFrame): Slot[] {
   return out;
 }
 
+/** What forces a page rebuild: container positions, and the OS menu (items can only change on a build). */
+/** Header text: the title flush left, the status flush right (measured spaces: the font is proportional). */
+export function headerText(f: Pick<LensFrame, 'left' | 'right'>): string {
+  if (!f.right) return f.left;
+  if (!f.left)
+    return ' '.repeat(Math.max(0, Math.floor((HEADER_TEXT_W - getTextWidth(f.right)) / getTextWidth(' ')))) + f.right;
+  const gap = HEADER_TEXT_W - getTextWidth(f.left) - getTextWidth(f.right);
+  return f.left + ' '.repeat(Math.max(2, Math.floor(gap / getTextWidth(' ')))) + f.right;
+}
+
 export function geometry(f: LensFrame): string {
-  return slots(f)
+  const boxes = slots(f)
     .map((s) => `${s.id}:${s.x},${s.y},${s.w},${s.h}`)
     .join('|');
+  return `${boxes}#${osMenuKey(f.menu ?? [])}`;
 }
 
 function property(s: Slot): TextContainerProperty {
@@ -132,7 +152,13 @@ export class Lens {
     const want = slots(f);
     const geom = geometry(f);
     if (!this.created || geom !== this.geom) {
-      const cfg = { containerTotalNum: want.length, textObject: want.map(property) };
+      // The OS menu rides on every build: a rebuild without it clears the wearer's tap-then-hold items.
+      const menuObject = osMenuObject(f.menu ?? []);
+      const cfg = {
+        containerTotalNum: want.length,
+        textObject: want.map(property),
+        ...(menuObject ? { menuObject } : {}),
+      };
       // create resolves a result code (0 = success); rebuild resolves a boolean.
       const ok: number | boolean = !this.created
         ? await this.bridge.createStartUpPageContainer(new CreateStartUpPageContainer(cfg))
