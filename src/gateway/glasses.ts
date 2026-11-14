@@ -34,8 +34,10 @@ export const GLASSES_VIEW_LIMIT = 20;
 export const GLASSES_LISTEN_MAX_MS = 60_000;
 /** `partial` frames are sent at most this often. */
 export const GLASSES_PARTIAL_MS = 200;
-/** Messages a `thread` frame carries when the client does not say. */
+/** Messages (yours and the agent's; tool calls do not count) a `thread` frame carries when the client does not say. */
 export const GLASSES_THREAD_LIMIT = 12;
+/** The most a client may ask for: the lens asks for more as the wearer scrolls back (Jordan, 2026-11-13: "scroll up forever"). */
+export const GLASSES_THREAD_MAX = 300;
 
 /** A session, everywhere on the glasses: `<hostId>/<sessionId>` (Aristo's own org key). */
 export type GlassesKey = string;

@@ -1,5 +1,8 @@
+import { getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
 import {
+  CONVO_W,
+  YOU_W,
   conversationLines,
   convoWindow,
   glide,
@@ -64,12 +67,31 @@ describe('conversation keeps the shape of a message', () => {
     expect(rows).toEqual(['run:', 'npm test']);
   });
 
-  it('still prefixes your messages and puts a blank line before each turn', () => {
+  // Jordan, 2026-11-13: "put their messages on the left and put mine on the right", no "you" marker, and no
+  // blank line between their messages and mine.
+  it('the agent is flush left, you are flush right, with no marker and no blank line between turns', () => {
     const rows = conversationLines([
       { who: 'agent', text: 'hi' },
       { who: 'you', text: 'line one\nline two' },
     ] as never);
-    expect(rows).toEqual(['hi', '', '› line one', 'line two']);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toBe('hi');
+    for (const r of rows.slice(1)) {
+      expect(r).toMatch(/^ {10,}line (one|two)$/);
+      expect(r).not.toContain('›');
+      const w = getTextWidth(r);
+      expect(w).toBeLessThanOrEqual(CONVO_W);
+      expect(w).toBeGreaterThan(CONVO_W - getTextWidth(' '));
+    }
+  });
+
+  it('a long message of yours wraps narrower than the agent message, every row ending at the right edge', () => {
+    const long = 'please check whether the nightly billing job double counts refunds and tell me what you find';
+    const you = conversationLines([{ who: 'you', text: long }] as never);
+    const agent = conversationLines([{ who: 'agent', text: long }] as never);
+    expect(you.length).toBeGreaterThan(agent.length);
+    for (const r of you) expect(getTextWidth(r)).toBeGreaterThan(CONVO_W - getTextWidth(' '));
+    expect(Math.max(...you.map((r) => getTextWidth(r.trimStart())))).toBeLessThanOrEqual(YOU_W);
   });
 });
 
@@ -81,7 +103,7 @@ describe('tool calls stay off the lens', () => {
       { who: 'tool', text: 'google-ads set-campaign-status DroneID PAUSED' },
       { who: 'agent', text: 'Paused.' },
     ] as never);
-    expect(rows).toEqual(['› pause the ads', 'Paused.']);
+    expect(rows.map((r) => r.trim())).toEqual(['pause the ads', 'Paused.']);
   });
 
   it('a thread of only tool calls reads as empty', () => {

@@ -12,7 +12,7 @@
  * Gestures in, `{ state, effects }` out. The shell (app.ts) runs the effects: socket frames, the mic,
  * persisting the open screen, closing the app.
  */
-import { GLASSES_VIEW_LIMIT } from '../gateway/glasses';
+import { GLASSES_THREAD_LIMIT, GLASSES_VIEW_LIMIT } from '../gateway/glasses';
 import type {
   GlassesAsk,
   GlassesHomeView,
@@ -22,7 +22,7 @@ import type {
   GlassesServerFrame,
 } from '../gateway/glasses';
 import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from '../gateway/glasses';
-import { CONVO_LINES, conversationLines, glide, scrollAnchor } from './conversation';
+import { CONVO_LINES, conversationLines, glide, messageLines, scrollAnchor, topLine } from './conversation';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
@@ -166,7 +166,10 @@ export function openFor(s: State): GlassesOpen {
       const limit = s.limits[sc.viewId];
       return limit ? { screen: 'view', viewId: sc.viewId, limit } : { screen: 'view', viewId: sc.viewId };
     }
-    if (sc.kind === 'session' || sc.kind === 'menu') return { screen: 'session', key: sc.key };
+    if (sc.kind === 'session' || sc.kind === 'menu') {
+      const limit = s.limits[`session:${sc.key}`];
+      return limit ? { screen: 'session', key: sc.key, limit } : { screen: 'session', key: sc.key };
+    }
   }
   return { screen: 'home' };
 }
@@ -347,7 +350,7 @@ export function receive(s: State, f: ServerFrame, now: number): { state: State; 
     case 'thread': {
       // A thread whose ask is no longer the one we answered means our answer landed.
       const answered = f.ask ? s.answered : s.answered.filter((id) => id !== s.thread?.ask?.promptId);
-      return { state: { ...s, thread: f, answered }, effects: [] };
+      return { state: keepPlace({ ...s, thread: f, answered }, s.thread, f), effects: [] };
     }
     case 'banner': {
       // Never banner the session already on screen, nor an ask we just answered.
@@ -479,6 +482,44 @@ export interface GestureResult {
 
 const none = (state: State): GestureResult => ({ state, effects: [], pending: {} });
 
+/** Messages a session asks for at a time when the wearer scrolls past the top (the gateway caps it). */
+export const MORE_MESSAGES = 24;
+export const MAX_MESSAGES = 300;
+
+/**
+ * Scrolled to the very top: ask the gateway for MORE_MESSAGES more (Jordan, 2026-11-13: "scroll up forever").
+ * Only when the frame came back full, i.e. there may be older ones; the reader's place is kept when they land.
+ */
+function olderMessages(s: State, key: GlassesKey, t: ThreadFrame): GestureResult {
+  const limKey = `session:${key}`;
+  const have = t.lines.filter((l) => l.who !== 'tool').length;
+  const asked = s.limits[limKey] ?? GLASSES_THREAD_LIMIT;
+  if (have < asked || asked >= MAX_MESSAGES) return none(s);
+  const next = { ...s, limits: { ...s.limits, [limKey]: Math.min(MAX_MESSAGES, asked + MORE_MESSAGES) } };
+  return { state: next, effects: [{ kind: 'send', frame: { t: 'open', ...openFor(next) } }], pending: {} };
+}
+
+/**
+ * A new thread frame for the same session that starts EARLIER (older messages loaded above) moves every line
+ * down by the rows those messages take: shift the pinned top line by as much, so the screen does not jump.
+ */
+function keepPlace(s: State, prev: ThreadFrame | null, f: ThreadFrame): State {
+  if (!prev || prev.row.key !== f.row.key) return s;
+  const key = f.row.key;
+  const first = prev.lines.find((l) => l.who !== 'tool');
+  if (!first) return s;
+  const at = f.lines.findIndex((l) => l.who === first.who && l.text === first.text && l.at === first.at);
+  if (at <= 0) return s;
+  const added = f.lines.slice(0, at).flatMap(messageLines).length;
+  const anchor = s.anchors[key];
+  const peek = s.peek[key];
+  return {
+    ...s,
+    anchors: anchor == null ? s.anchors : { ...s.anchors, [key]: anchor + added },
+    peek: peek === undefined ? s.peek : { ...s.peek, [key]: peek + added },
+  };
+}
+
 // ------------------------------------------------------------------------------------------- OS menu
 
 /** Ids of the glasses' own tap-then-hold menu items (os-menu.ts). Stable: a click means the same thing always. */
@@ -552,15 +593,19 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
         const lastTop = Math.max(0, all.length - CONVO_LINES);
         if (reading === undefined) return none(withPeek(s, sc.key, lastTop));
         if (g === 'down' && reading >= lastTop) return none(withPeek(s, sc.key, undefined));
-        return none(withPeek(s, sc.key, scrollAnchor(all, reading, g) ?? lastTop));
+        const moved = withPeek(s, sc.key, scrollAnchor(all, reading, g) ?? lastTop);
+        return g === 'up' && reading === 0 ? olderMessages(moved, sc.key, t) : none(moved);
       }
     }
     // The conversation scrolls SCROLL_STEP lines; any other screen moves the cursor.
     if (sc.kind === 'session' && !liveAsk(s, sc.key)) {
       const t = threadFor(s, sc.key);
       if (!t) return none(s);
-      const anchor = scrollAnchor(conversationLines(t.lines), anchorFor(s, sc.key), g);
-      return none({ ...s, anchors: { ...s.anchors, [sc.key]: anchor } });
+      const all = conversationLines(t.lines);
+      const was = topLine(all, anchorFor(s, sc.key));
+      const anchor = scrollAnchor(all, anchorFor(s, sc.key), g);
+      const next = { ...s, anchors: { ...s.anchors, [sc.key]: anchor } };
+      return g === 'up' && was === 0 ? olderMessages(next, sc.key, t) : none(next);
     }
     const list = items(s, sc);
     if (!list.length) return none(s);
@@ -859,7 +904,9 @@ export function toSaved(s: State, now: number): Saved {
 /** Start where the wearer left off. */
 export function restore(s: State, saved: Saved | null): State {
   if (!saved || !saved.stack.length || saved.stack[0].kind !== 'home') return s;
-  return { ...s, stack: saved.stack };
+  // The app always opens awake: quiet mode is never restored (Jordan, 2026-11-13: "don't start automatically in quiet mode").
+  const stack = saved.stack.filter((sc) => sc.kind !== 'quiet');
+  return { ...s, stack };
 }
 
 /**

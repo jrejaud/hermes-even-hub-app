@@ -22,7 +22,12 @@ export const CONVO_LINES = 7;
  */
 export const SCROLL_STEP = 3;
 
-const prefix = (l: GlassesLine): string => (l.who === 'you' ? '› ' : '');
+/**
+ * Your messages wrap to this width and sit flush right; the agent's use the full width, flush left (Jordan,
+ * 2026-11-13: "just put their messages on the left and put mine on the right", no "you" marker, no blank line
+ * between turns: the sides tell them apart).
+ */
+export const YOU_W = Math.round(CONVO_W * 0.72);
 
 /** Frames a heading on both sides; ━ is in the firmware font. */
 export const HEADING_RULE = '━━';
@@ -63,7 +68,7 @@ export function lensMarkdown(src: string): string {
 }
 
 /** A message's text as lens rows: its own line breaks, indents and (single) blank lines kept, then wrapped. */
-function messageRows(text: string, lead: string): string[] {
+function messageRows(text: string, width: number): string[] {
   const src = text.replace(/\r\n?/g, '\n').split('\n');
   const rows: string[] = [];
   let fenced = false;
@@ -81,29 +86,34 @@ function messageRows(text: string, lead: string): string[] {
   }
   while (rows.length && rows[rows.length - 1] === '') rows.pop();
   const out: string[] = [];
-  rows.forEach((row, i) => {
+  rows.forEach((row) => {
     if (row === '') return void out.push('');
     // An indented line wraps inside its indent (a hanging indent), so nesting still reads after a wrap.
     const indent = /^ */.exec(row)![0];
-    const first = i === 0 ? lead : '';
-    const width = CONVO_W - spaceWidth(indent) - spaceWidth(first);
-    wrapTextLines(row.trimStart(), width).forEach((w, j) => out.push((j === 0 ? first : '') + indent + w));
+    wrapTextLines(row.trimStart(), width - spaceWidth(indent)).forEach((w) => out.push(indent + w));
   });
   return out;
 }
 
+/** Pad a row with measured spaces so it ends at the right edge of the conversation box. */
+function flushRight(row: string): string {
+  if (!row) return row;
+  const pad = Math.floor((CONVO_W - getTextWidth(row)) / getTextWidth(' '));
+  return pad > 0 ? ' '.repeat(pad) + row : row;
+}
+
+/** One message's rows: yours narrower and flush right, the agent's full width and flush left. Tool calls: none. */
+export function messageLines(l: GlassesLine): string[] {
+  if (l.who === 'tool') return [];
+  if (l.who === 'agent') return messageRows(l.text, CONVO_W);
+  return messageRows(l.text, YOU_W).map((r) => flushRight(r.trimStart()));
+}
+
 const spaceWidth = (s: string): number => (s ? getTextWidth(s) : 0);
 
+/** Every message's rows back to back (no blank line between messages), so rows add up message by message. */
 export function conversationLines(lines: GlassesLine[]): string[] {
-  const out: string[] = [];
-  lines.forEach((l) => {
-    if (l.who === 'tool') return;
-    const rows = messageRows(l.text, prefix(l));
-    if (!rows.length) return;
-    // A blank line before each of your messages: it marks the start of a turn.
-    if (l.who === 'you' && out.length) out.push('');
-    out.push(...rows);
-  });
+  const out = lines.flatMap(messageLines);
   return out.length ? out : ['No messages yet.'];
 }
 

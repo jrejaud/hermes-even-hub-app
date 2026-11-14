@@ -14,6 +14,7 @@ import {
   MAX_LISTEN_MS,
   MENU_LEAVE_QUIET,
   MENU_NEW_AGENT,
+  MORE_MESSAGES,
   MENU_QUIET,
   menuActions,
   menuPick,
@@ -537,5 +538,57 @@ describe('the activity line never names a tool', () => {
     const out = text(working('Edit packages/shared/view-engine.ts', null));
     expect(out).not.toContain('view-engine');
     expect(out).toContain('working');
+  });
+});
+
+// Jordan, 2026-11-13: "can you make it so I can scroll down, scroll up forever? I can only scroll like five screens".
+describe('scrolling back through a long session', () => {
+  const key = 'overlord/g2';
+  const msgs = (from: number, n: number) =>
+    Array.from({ length: n }, (_, i) => ({ who: 'agent' as const, text: `message ${from + i}`, at: `t${from + i}` }));
+  const frame = (lines: ReturnType<typeof msgs>): GlassesServerFrame => ({ ...threadFrame(key), lines });
+  const opened = (): State => feed(open(ROWS.findIndex((r) => r.key === key)), frame(msgs(100, 12)));
+
+  it('scrolling up past the top asks the gateway for more messages, and the open carries the bigger limit', () => {
+    let s = opened();
+    const sent = [];
+    for (let i = 0; i < 10; i++) {
+      const r = gesture(s, 'up', T);
+      sent.push(...r.effects);
+      s = r.state;
+    }
+    expect(sent).toEqual([{ kind: 'send', frame: { t: 'open', screen: 'session', key, limit: 12 + MORE_MESSAGES } }]);
+  });
+
+  it('when the older messages land, the screen keeps showing the same line (no jump)', () => {
+    let s = opened();
+    for (let i = 0; i < 10; i++) s = press(s, 'up');
+    s = gesture(s, 'up', T).state;
+    const before = layout(s).body[0]!.text;
+    const after = feed(s, frame([...msgs(76, 24), ...msgs(100, 12)]));
+    expect(layout(after).body[0]!.text).toBe(before);
+  });
+
+  it('a frame that came back short (the whole session is loaded) asks for nothing more', () => {
+    let s = feed(open(ROWS.findIndex((r) => r.key === key)), frame(msgs(100, 5)));
+    for (let i = 0; i < 5; i++) s = press(s, 'up');
+    expect(gesture(s, 'up', T).effects).toEqual([]);
+  });
+
+  it('the header does not change while the text scrolls (no page number)', () => {
+    let s = opened();
+    const right = layout(s).right;
+    for (let i = 0; i < 3; i++) {
+      s = press(s, 'up');
+      expect(layout(s).right).toBe(right);
+    }
+  });
+});
+
+describe('starting the app', () => {
+  // Jordan, 2026-11-13: "don't start automatically in quiet mode when you start the app".
+  it('never restores quiet mode: it opens on the screen under it', () => {
+    const q = menuPick(online(), MENU_QUIET, T).state;
+    expect(restore(initialState(), toSaved(q, T)).stack).toEqual([{ kind: 'home' }]);
   });
 });

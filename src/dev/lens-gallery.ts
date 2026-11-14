@@ -219,7 +219,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '14-working-session',
     looking_for:
-      'the conversation: › your lines, agent replies plain, NO tool-call lines; newest at the bottom; the activity line starts with the … marker and is dimmer (textColor 1 = alpha 179 vs 255: the whole range glass has); no action rows',
+      'the conversation: your lines flush RIGHT (no marker), agent replies flush left, no blank line between turns, NO tool-call lines; newest at the bottom; the activity line starts with the … marker and is dimmer (textColor 1 = alpha 179 vs 255: the whole range glass has); no action rows',
     state: openRow(3),
   },
   {
@@ -319,7 +319,8 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '27-conversation-long',
-    looking_for: 'a long conversation follows the newest: last 7 lines, header right shows status and n/N pages',
+    looking_for:
+      'a long conversation follows the newest: last 7 lines, header right shows only the status (no page number: it stays still while the text glides)',
     state: longThread(),
   },
   {
@@ -358,7 +359,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '34-question-reading-session',
-    looking_for: 'swiped up on a question: its conversation, header right names the ask kind (and page if several)',
+    looking_for: 'swiped up on a question: its conversation, header right names only the ask kind (no page number)',
     state: press(openRow(0), 'up'),
   },
   {

@@ -361,13 +361,13 @@ function layoutRaw(s: State, now: number): LensFrame {
     if (ask && reading !== undefined) {
       // Reading the conversation behind the ask; the dim last line names what is waiting below (▽).
       const win = convoWindow(conversationLines(t.lines), reading);
-      const pageTag = win.pages > 1 ? `${win.page}/${win.pages}` : '';
       const waiting = `${MARK.needs} ${ask.ask || ask.kind} ${MORE_BELOW}`;
       const body: Box[] = [
         { text: win.lines.join('\n'), bright: B.body, lines: Math.min(CONVO_LINES, Math.max(1, win.lines.length)) },
         { text: fit(waiting, TEXT_W), bright: B.dim, lines: 1 },
       ];
-      const right = status ?? [ask.kind, pageTag].filter(Boolean).join(', ');
+      // The header stays still while the text glides (Jordan, 2026-11-13): no page number that changes per swipe.
+      const right = status ?? ask.kind;
       return { left: t.row.title, right, leftBright: B.normal, rightBright: B.needs, body };
     }
     if (ask) {
@@ -394,8 +394,8 @@ function layoutRaw(s: State, now: number): LensFrame {
     }
     // The conversation, a few lines per swipe, with what the session is doing on a dim last line.
     const win = convoWindow(conversationLines(t.lines), anchorFor(s, sc.key));
-    const pageTag = win.pages > 1 ? `${win.page}/${win.pages}` : '';
-    const right = status ?? [t.row.status, pageTag].filter(Boolean).join(', ');
+    // The header stays still while the text glides (Jordan, 2026-11-13): no page number that changes per swipe.
+    const right = status ?? t.row.status;
     // Opens with the session's marker, so it reads as status, not one more message (brightness alone spans ~30% on glass).
     // A working row's detail is the tool it is running ("Edit src/x.ts"): tool calls stay off the lens (Jordan,
     // 2026-11-13), so only a pending ask's summary is shown; otherwise just "working".
