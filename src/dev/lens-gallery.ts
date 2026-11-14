@@ -169,7 +169,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '04-home-cursor-down',
-    looking_for: 'cursor on Foreground; rows do not shift sideways',
+    looking_for: 'cursor on the row under Inbox (From glasses); rows do not shift sideways',
     state: press(online(), 'down'),
   },
   {

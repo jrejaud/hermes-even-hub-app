@@ -28,6 +28,10 @@ describe('every gallery frame fits the lens', () => {
       const all = slots(frame);
       expect(all.length).toBeLessThanOrEqual(8);
       expect(all.filter((s) => s.capture)).toHaveLength(1);
+      // Swipes go to an EMPTY box: the firmware nudges the box that takes a swipe, and the title bounced when it was
+      // the header (Jordan, 2026-11-14). The header is one box, the title left and the status right.
+      expect(all.find((s) => s.capture)!.text).toBe('');
+      expect(all.filter((s) => s.y === 0)).toHaveLength(1);
       for (const s of all) {
         expect(s.y + s.h, `${s.name} below the screen`).toBeLessThanOrEqual(SCREEN.h);
         expect(s.x + s.w).toBeLessThanOrEqual(SCREEN.w);
@@ -35,7 +39,8 @@ describe('every gallery frame fits the lens', () => {
         const missing = [...s.text].filter((ch) => ch !== '\n' && getAdvW(ch.codePointAt(0)!) === 0);
         expect(missing, `${s.name} draws glyphs the firmware lacks`).toEqual([]);
         const lines = s.text.split('\n');
-        expect(lines.length * LINE, `${s.name} has more lines than its box`).toBeLessThanOrEqual(s.h);
+        // The empty input strip draws nothing; only boxes with text must hold their lines.
+        if (s.text) expect(lines.length * LINE, `${s.name} has more lines than its box`).toBeLessThanOrEqual(s.h);
         for (const l of lines)
           expect(getTextWidth(l), `${s.name}: "${l}" wider than its box`).toBeLessThanOrEqual(s.w - 4);
       }

@@ -19,7 +19,11 @@ import {
 } from '@evenrealities/even_hub_sdk';
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk';
 import { osMenuKey, osMenuObject } from './os-menu';
-import { BODY_TOP, BOX_GAP, HEADER_H, PAD, SCREEN, boxHeight, rightWidth, type LensFrame } from './layout';
+import { getTextWidth } from '@evenrealities/pretext';
+import { BODY_TOP, BOX_GAP, HEADER_H, PAD, SCREEN, boxHeight, type LensFrame } from './layout';
+
+/** Text width inside the header box (padding both sides, a little slack for the firmware's rounding). */
+const HEADER_TEXT_W = SCREEN.w - 2 * PAD - 12;
 
 interface Slot {
   id: number;
@@ -33,22 +37,26 @@ interface Slot {
   capture: boolean;
 }
 
-/** The containers a frame needs. Header-left carries input capture: it is the one box that always exists. */
+/**
+ * The containers a frame needs. The header is ONE box (where you are, then the status pushed to the right edge),
+ * and input is captured by an EMPTY strip under it: the firmware nudges whichever box receives a swipe up or
+ * down, and when that was the header the title bounced on every swipe (Jordan, 2026-11-14: "the title is moving up
+ * and down slightly"). Merging the header frees the box that strip needs (8 text boxes at most on a page).
+ */
 export function slots(f: LensFrame): Slot[] {
-  const rw = rightWidth(f.right);
   const out: Slot[] = [
-    { id: 1, name: 'hl', x: 0, y: 0, w: SCREEN.w - rw, h: HEADER_H, text: f.left, bright: f.leftBright, capture: true },
     {
-      id: 2,
-      name: 'hr',
-      x: SCREEN.w - rw,
+      id: 1,
+      name: 'hd',
+      x: 0,
       y: 0,
-      w: rw,
+      w: SCREEN.w,
       h: HEADER_H,
-      text: f.right,
-      bright: f.rightBright,
+      text: headerText(f),
+      bright: f.leftBright,
       capture: false,
     },
+    { id: 2, name: 'in', x: 0, y: HEADER_H, w: SCREEN.w, h: BODY_TOP - HEADER_H, text: '', bright: 0, capture: true },
   ];
   let y = BODY_TOP;
   f.body.forEach((b, i) => {
@@ -70,6 +78,15 @@ export function slots(f: LensFrame): Slot[] {
 }
 
 /** What forces a page rebuild: container positions, and the OS menu (items can only change on a build). */
+/** Header text: the title flush left, the status flush right (measured spaces: the font is proportional). */
+export function headerText(f: Pick<LensFrame, 'left' | 'right'>): string {
+  if (!f.right) return f.left;
+  if (!f.left)
+    return ' '.repeat(Math.max(0, Math.floor((HEADER_TEXT_W - getTextWidth(f.right)) / getTextWidth(' ')))) + f.right;
+  const gap = HEADER_TEXT_W - getTextWidth(f.left) - getTextWidth(f.right);
+  return f.left + ' '.repeat(Math.max(2, Math.floor(gap / getTextWidth(' ')))) + f.right;
+}
+
 export function geometry(f: LensFrame): string {
   const boxes = slots(f)
     .map((s) => `${s.id}:${s.x},${s.y},${s.w},${s.h}`)
