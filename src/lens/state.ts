@@ -422,6 +422,8 @@ export function reply(s: State, pending: Pending, f: Reply, now: number): { stat
     }
     // Open the new session in place of the dictation.
     const key = f.t === 'ok' ? f.key : undefined;
+    // Never pop a dictation whose mic is still open (a new recording started since): that would leave it streaming.
+    if (micLive(sc)) return { state: s, effects: [] };
     let next = sc.kind === 'dictate' ? pop(s) : s;
     if (key)
       next = push(next, { kind: 'session', key, title: sc.kind === 'dictate' ? sc.text.slice(0, 60) : 'New session' });
@@ -567,7 +569,8 @@ export function menuPick(s: State, id: number, now: number): GestureResult {
 export function gesture(live: State, g: Gesture, now: number, drawn: State = live): GestureResult {
   let s = expire(live, now);
 
-  if (s.banner) return bannerGesture(s, g);
+  // While the mic is open, gestures belong to the recording (a tap ends it), not to a banner that arrived meanwhile.
+  if (s.banner && !micLive(top(s))) return bannerGesture(s, g);
 
   const sc = top(s);
 
@@ -856,6 +859,11 @@ function redo(s: State, d: Dictation, now: number): GestureResult {
   return listen(back, { kind: 'dictate', purpose: d.purpose, key: d.key, title: d.title }, now);
 }
 
+/** A dictation whose mic is open: audio is (or may still be) streaming to the gateway. */
+function micLive(sc: Screen): boolean {
+  return sc.kind === 'dictate' && (sc.phase === 'listening' || sc.phase === 'finishing');
+}
+
 function bannerGesture(s: State, g: Gesture): GestureResult {
   const b = s.banner!;
   if (g === 'up' || g === 'down') return none({ ...s, bannerCursor: g === 'down' ? 1 : 0 });
@@ -864,9 +872,15 @@ function bannerGesture(s: State, g: Gesture): GestureResult {
   // Answer now: open that session on top of wherever we are; double tap comes back here.
   let next: State = { ...s, banner: null };
   const sc = top(next);
-  if (sc.kind === 'dictate' || sc.kind === 'menu') next = pop(next);
+  let stop: Effect[] = [];
+  if (sc.kind === 'dictate' && micLive(sc)) {
+    // A recording left open would keep streaming audio for a listen nobody ends: cancel it first.
+    const c = cancelListen(next, sc as Dictation);
+    next = c.state;
+    stop = c.effects;
+  } else if (sc.kind === 'dictate' || sc.kind === 'menu') next = pop(next);
   next = push(next, { kind: 'session', key: b.key, title: b.title });
-  return { state: next, effects: navEffects(next), pending: {} };
+  return { state: next, effects: [...stop, ...navEffects(next)], pending: {} };
 }
 
 /** Drop a banner or notice whose time is up. Pure in `now`; app.ts calls it on a timer too. */

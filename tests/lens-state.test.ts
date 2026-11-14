@@ -592,3 +592,36 @@ describe('starting the app', () => {
     expect(restore(initialState(), toSaved(q, T)).stack).toEqual([{ kind: 'home' }]);
   });
 });
+
+// Review finding Ffdf3853d84 (2026-11-14): a banner tap, or a late `create` reply, popped a recording whose mic was
+// still open, so audio kept streaming to the gateway for a listen nobody would end.
+describe('an open mic is never abandoned', () => {
+  const banner: GlassesServerFrame = {
+    t: 'banner',
+    key: 'box/churn',
+    title: 'Churn audit',
+    ask: 'Include trials?',
+    promptId: 'p-c',
+  };
+  const listening = (): State => press(online(), 'hold');
+
+  it('a banner that arrives mid-recording does not take the tap: the tap ends the recording', () => {
+    const s = feed(listening(), banner);
+    expect(top(s)).toMatchObject({ kind: 'dictate', phase: 'listening' });
+    const r = gesture(s, 'tap', T + 3_000);
+    expect(top(r.state)).toMatchObject({ kind: 'dictate', phase: 'finishing' });
+  });
+
+  it('a create reply that lands while a NEW recording is open leaves that recording alone', () => {
+    const s = listening();
+    const reqs = Object.keys(gesture(online(), 'hold', T).pending);
+    const after = reply(
+      s,
+      { kind: 'create' } as never,
+      { t: 'ok', reqId: 'r-old', key: 'chiba/new' } as never,
+      T,
+    ).state;
+    expect(top(after)).toMatchObject({ kind: 'dictate', phase: 'listening' });
+    expect(reqs.length).toBeGreaterThan(0);
+  });
+});

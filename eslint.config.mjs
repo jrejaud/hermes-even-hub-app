@@ -11,6 +11,8 @@ export default tseslint.config(
       'playwright-report/',
       'test-results/',
       '.harness/',
+      // Other worktrees of this repo live here; their tsconfigs confuse typescript-eslint's root detection.
+      '.trees/',
       'docs/aristo-plan/',
     ],
   },
