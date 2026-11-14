@@ -28,9 +28,11 @@ describe('every gallery frame fits the lens', () => {
       const all = slots(frame);
       expect(all.length).toBeLessThanOrEqual(8);
       expect(all.filter((s) => s.capture)).toHaveLength(1);
-      // Swipes go to an EMPTY box: the firmware nudges the box that takes a swipe, and the title bounced when it was
-      // the header (Jordan, 2026-11-14). The header is one box, the title left and the status right.
-      expect(all.find((s) => s.capture)!.text).toBe('');
+      // The header is one box and takes input; it has room to spare for its one line, so the firmware does not
+      // treat it as overflowing and nudge it on each swipe (Jordan, 2026-11-14), and swipes are not spent scrolling it.
+      const head = all.find((s) => s.capture)!;
+      expect(head.y).toBe(0);
+      expect(head.h - 2 * 2).toBeGreaterThanOrEqual(LINE + 4);
       expect(all.filter((s) => s.y === 0)).toHaveLength(1);
       for (const s of all) {
         expect(s.y + s.h, `${s.name} below the screen`).toBeLessThanOrEqual(SCREEN.h);

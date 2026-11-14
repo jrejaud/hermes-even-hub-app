@@ -20,7 +20,7 @@ import {
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk';
 import { osMenuKey, osMenuObject } from './os-menu';
 import { getTextWidth } from '@evenrealities/pretext';
-import { BODY_TOP, BOX_GAP, HEADER_H, PAD, SCREEN, boxHeight, type LensFrame } from './layout';
+import { BODY_TOP, BOX_GAP, PAD, SCREEN, boxHeight, type LensFrame } from './layout';
 
 /** Text width inside the header box (padding both sides, a little slack for the firmware's rounding). */
 const HEADER_TEXT_W = SCREEN.w - 2 * PAD - 12;
@@ -39,9 +39,10 @@ interface Slot {
 
 /**
  * The containers a frame needs. The header is ONE box (where you are, then the status pushed to the right edge),
- * and input is captured by an EMPTY strip under it: the firmware nudges whichever box receives a swipe up or
- * down, and when that was the header the title bounced on every swipe (Jordan, 2026-11-14: "the title is moving up
- * and down slightly"). Merging the header frees the box that strip needs (8 text boxes at most on a page).
+ * and it takes input. It is as tall as the space above the body (BODY_TOP - BOX_GAP), not just one line: a box whose
+ * text barely fits counts as overflowing, and the firmware then scrolls it a little on each swipe (the title
+ * "moving up and down slightly", Jordan 2026-11-14). An empty input strip fixed that but was too short to hold a line,
+ * so swipes were spent scrolling inside it and felt slow; Jordan chose the title box over a shorter conversation.
  */
 export function slots(f: LensFrame): Slot[] {
   const out: Slot[] = [
@@ -51,12 +52,11 @@ export function slots(f: LensFrame): Slot[] {
       x: 0,
       y: 0,
       w: SCREEN.w,
-      h: HEADER_H,
+      h: BODY_TOP - BOX_GAP,
       text: headerText(f),
       bright: f.leftBright,
-      capture: false,
+      capture: true,
     },
-    { id: 2, name: 'in', x: 0, y: HEADER_H, w: SCREEN.w, h: BODY_TOP - HEADER_H, text: '', bright: 0, capture: true },
   ];
   let y = BODY_TOP;
   f.body.forEach((b, i) => {
