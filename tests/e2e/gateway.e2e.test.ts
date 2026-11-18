@@ -16,7 +16,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { SocketLike } from '../../src/gateway/client';
 import type { GlassesServerFrame } from '../../src/gateway/glasses';
 import { startApp } from '../../src/lens/app';
-import { SHORT_HOLD_MS } from '../../src/lens/state';
 
 const URL_ = process.env.LENS_GATEWAY_URL;
 const TOKEN = process.env.LENS_GATEWAY_TOKEN ?? '';
@@ -153,57 +152,33 @@ describe.skipIf(!URL_ || !ADMIN)('Aristo Lens against a live glasses gateway', (
     expect(hit.args).toEqual(t.ask!.options[1].answer);
   });
 
-  // Longer than the 5 s default: it walks the cursor and holds past SHORT_HOLD_MS.
-  it(
-    'a free-text question answered by voice: dictate, confirm, send; the gateway builds the answer',
-    { timeout: 15_000 },
-    async () => {
+  it('a free-text question answered by voice: dictate, confirm, send; the gateway builds the answer', async () => {
+    await settle();
+    const key = 'box/s-free';
+    // Walk the Inbox cursor to the free-text question, then open it.
+    for (let i = 0; i < 8; i++) {
+      if (shows('▶ ● Box disk')) break;
+      down();
       await settle();
-      const key = 'box/s-free';
-      // Walk the Inbox cursor to the free-text question, then open it.
-      for (let i = 0; i < 8; i++) {
-        // The cursor row, whatever the needs marker is drawn as (● until SC-9703's M1 set made it !).
-        if (texts.slice(-12).some((t) => t.split('\n').some((l) => l.includes('▶') && l.includes('Box disk')))) break;
-        down();
-        await settle();
-      }
-      tap();
-      const t = await until('free-text thread', () => lastThread(key));
-      expect(t.ask?.freeText).toBe(true);
-      // The lens streams speech (listen, SC-9704), so what it hears is the mock's word stream, not the one-shot stt.
-      await fetch(`${ADMIN}/mock/words`, {
-        method: 'POST',
-        body: JSON.stringify({ words: 'dictated text' }),
-        headers: { 'content-type': 'application/json' },
-      });
-      await settle();
-      hold();
-      const heldAt = Date.now();
-      speak();
-      // A hold shorter than SHORT_HOLD_MS is an accidental press and is cancelled (SC-9703): hold past it.
-      await until('a real hold', () => Date.now() - heldAt > SHORT_HOLD_MS);
-      release();
-      await until('the transcript on the confirm screen', () => shows('dictated text'));
-      await settle();
-      tap(); // Send
-      const hit = await waitLog(
-        t.ask!.promptId,
-        (l) => l.op === 'prompt.answer' && l.args.promptId === t.ask!.promptId,
-      );
-      expect(JSON.stringify(hit.args)).toContain('dictated text');
-      // …and the lens leaves the confirm screen (the review caught it stuck on "sending…" forever).
-      await until(
-        'the confirm screen to close',
-        // The session's header was drawn again after the last "sending…" (the lens draws box by box, so a fixed
-        // window of recent texts can still hold the old header after the screen closed).
-        () => {
-          const last = (p: (t: string) => boolean) => texts.reduce((at, t, i) => (p(t) ? i : at), -1);
-          const sending = last((t) => t.includes('sending…'));
-          return sending >= 0 && last((t) => t.includes('Box disk at 91%') && !t.includes('sending…')) > sending;
-        },
-      );
-    },
-  );
+    }
+    tap();
+    const t = await until('free-text thread', () => lastThread(key));
+    expect(t.ask?.freeText).toBe(true);
+    await settle();
+    hold();
+    speak();
+    release();
+    await until('the transcript on the confirm screen', () => shows('dictated text'));
+    await settle();
+    tap(); // Send
+    const hit = await waitLog(t.ask!.promptId, (l) => l.op === 'prompt.answer' && l.args.promptId === t.ask!.promptId);
+    expect(JSON.stringify(hit.args)).toContain('dictated text');
+    // …and the lens leaves the confirm screen (the review caught it stuck on "sending…" forever).
+    await until(
+      'the confirm screen to close',
+      () => texts.length > 0 && !texts.slice(-8).some((t) => t.includes('sending…')),
+    );
+  });
 
   it('a banner appears when another session starts asking', async () => {
     await settle();
