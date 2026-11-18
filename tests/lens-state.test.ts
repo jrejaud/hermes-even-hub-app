@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GlassesServerFrame } from '../src/gateway/glasses';
-import { ASKS, HOME, ROWS, threadFrame, viewFrame } from '../src/dev/fake-gateway';
+import { ASKS, HOME, HOME_NEEDS, ROWS, threadFrame, viewFrame } from '../src/dev/fake-gateway';
 import { layout } from '../src/lens/layout';
 import {
   BANNER_MS,
@@ -34,7 +34,7 @@ const T = 1_000_000;
 const hello: GlassesServerFrame = { t: 'hello', protocol: 1, host: 'chiba', hosts: [] };
 const feed = (s: State, ...f: GlassesServerFrame[]): State => f.reduce((a, x) => receive(a, x, T).state, s);
 const press = (s: State, ...g: Gesture[]): State => g.reduce((a, x) => gesture(a, x, T).state, s);
-const online = (): State => feed(initialState(), hello, { t: 'home', views: HOME });
+const online = (): State => feed(initialState(), hello, { t: 'home', views: HOME, needs: HOME_NEEDS });
 const inbox = (): State => feed(press(online(), 'tap'), viewFrame('inbox'));
 const open = (i: number): State => {
   let s = inbox();
@@ -314,10 +314,15 @@ describe('resume', () => {
       inboxNeeds: 1,
       at: 0,
     };
-    const s = landing(feed(restore(initialState(), saved), hello, { t: 'home', views: HOME }), saved);
+    const s = landing(
+      feed(restore(initialState(), saved), hello, { t: 'home', views: HOME, needs: HOME_NEEDS }),
+      saved,
+    );
     expect(top(s)).toMatchObject({ kind: 'view', viewId: 'inbox' });
     const same = { ...saved, inboxNeeds: 3 };
-    expect(top(landing(feed(restore(initialState(), same), hello, { t: 'home', views: HOME }), same))).toMatchObject({
+    expect(
+      top(landing(feed(restore(initialState(), same), hello, { t: 'home', views: HOME, needs: HOME_NEEDS }), same)),
+    ).toMatchObject({
       viewId: 'parakeet',
     });
   });
@@ -623,5 +628,34 @@ describe('an open mic is never abandoned', () => {
     ).state;
     expect(top(after)).toMatchObject({ kind: 'dictate', phase: 'listening' });
     expect(reqs.length).toBeGreaterThan(0);
+  });
+});
+
+// SC-10526 (Jordan, 2026-11-18): "the list of views you have access to on the Glasses is the favorites ones". The
+// gateway sends exactly the starred views, so nothing here may assume the first one is Inbox.
+describe("home is Aristo's Favorites (SC-10526)", () => {
+  const favs = [
+    { id: 'fg', name: 'Foreground', needs: 0, working: 4, total: 9 },
+    { id: 'parakeet', name: 'Parakeet', needs: 2, working: 2, total: 5 },
+  ];
+  const homeOf = (views: typeof favs, needs: number): GlassesServerFrame => ({ t: 'home', views, needs });
+  it('the header counts the Inbox from the frame, not from the first view', () => {
+    const s = feed(initialState(), hello, homeOf(favs, 5));
+    expect(layout(s, T).right).toBe('5 need you');
+    expect(items(s).map((i) => i.id)).toEqual(['fg', 'parakeet']);
+  });
+  it('no favorites: a line saying to star views in Aristo, not a blank home', () => {
+    const f = layout(feed(initialState(), hello, homeOf([], 0)), T);
+    expect(f.body.map((b) => b.text).join(' ')).toContain('Star views in Aristo');
+  });
+  it('a lens notification lands on the first favorite that needs Jordan; none needing him stays home', () => {
+    const saved = { stack: [{ kind: 'home' as const }], inboxNeeds: 1, at: 0 };
+    const s = landing(feed(restore(initialState(), saved), hello, homeOf(favs, 5)), saved);
+    expect(top(s)).toMatchObject({ kind: 'view', viewId: 'parakeet' });
+    expect(toSaved(s, T).inboxNeeds).toBe(5);
+    const quiet = favs.map((v) => ({ ...v, needs: 0 }));
+    expect(top(landing(feed(restore(initialState(), saved), hello, homeOf(quiet, 5)), saved))).toEqual({
+      kind: 'home',
+    });
   });
 });

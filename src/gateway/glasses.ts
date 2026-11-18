@@ -125,6 +125,28 @@ export interface GlassesAsk {
   createdAt: string;
 }
 
+/** A project the lens can start a new session in (New Session's folder list, emoji dropped). */
+export interface GlassesProject {
+  path: string;
+  name: string;
+}
+/** A model the lens can start a new session with (New Session's model list). */
+export interface GlassesModel {
+  id: string;
+  label: string;
+}
+/** New Session for the glasses (SC-10016): the auto-pick for what was said, and the lists to change it from. */
+export interface GlassesDraft {
+  /** The picked folder, or null when nothing matched (the session then starts where Aristo's routing puts it). */
+  project: GlassesProject | null;
+  projectWhy: string;
+  /** A model id from `models` ("default" = Claude Code's default). */
+  model: string;
+  modelWhy: string;
+  projects: GlassesProject[];
+  models: GlassesModel[];
+}
+
 /** One message of a thread. */
 export interface GlassesLine {
   who: "you" | "agent" | "tool";
@@ -138,8 +160,9 @@ export interface GlassesLine {
 export type GlassesServerFrame =
   /** First frame; sent again whenever a host comes up or goes down. */
   | { t: "hello"; protocol: number; host: string; hosts: { id: string; up: boolean }[] }
-  /** Home: Inbox + starred views. Re-sent when a count changes while Home is open. */
-  | { t: "home"; views: GlassesHomeView[] }
+  /** Home: exactly the views starred in Aristo, in the sidebar's order (SC-10526); `needs` = the Inbox count, whether
+   *  or not Inbox is starred. Re-sent when a count or a star changes while Home is open. */
+  | { t: "home"; views: GlassesHomeView[]; needs: number }
   /** An open view. `more` = rows beyond `limit` that were left out. */
   | { t: "view"; viewId: string; name: string; needs: number; total: number; sections: GlassesSection[]; more: number }
   /** An open session: its row, its pending ask (null when none) and its last messages. */
@@ -148,7 +171,7 @@ export type GlassesServerFrame =
   | { t: "banner"; key: GlassesKey; title: string; ask: string; promptId: string }
   /** A request worked (`answer`, `say`, `patch`, `stt`, `listen.end`, `listen.cancel`, `interrupt`, `create` reply with
    *  this). `stt` and `listen.end` carry `text`; `create` carries the new session's `key`. */
-  | { t: "ok"; reqId: string; text?: string; key?: GlassesKey }
+  | { t: "ok"; reqId: string; text?: string; key?: GlassesKey; draft?: GlassesDraft }
   /** Streaming speech to text (SC-9704): sent while a `listen` is open whenever the recogniser returns words, at most
    *  ~5 per second. `final` = all settled text so far, `interim` = the not-yet-final tail (may still change). Show
    *  `final + interim`; the transcript to send is the `ok` that answers `listen.end`. */
@@ -201,7 +224,9 @@ export type GlassesClientFrame =
   /** Start a new Aristo session with `text` as its first prompt, origin `glasses`, on the views home in the folder
    *  New Session would pick for it. `viewId` = the view the wearer started from (kept for a per-view default; views
    *  define none today). Reply `ok` with the new session's `key`. */
-  | { t: "create"; reqId: string; text: string; viewId?: string }
+  | { t: "create"; reqId: string; text: string; viewId?: string; cwd?: string; model?: string }
+  /** New Session's auto-pick for this text, with the project and model lists (SC-10016). Reply: `ok` with `draft`. */
+  | { t: "draft"; reqId: string; text: string }
   | { t: "ping" };
 
 /** The marker for a raw status, for the presenter (not the lens). */

@@ -140,15 +140,16 @@ export const ROWS: GlassesRow[] = [
   row({ key: 'box/sleepy', title: 'Old research', mark: 'asleep', detail: '', age: '2d' }),
 ];
 
+/** The views starred in Aristo (SC-10526): Inbox is starred here, so it is listed; it need not be. */
 export const HOME: GlassesHomeView[] = [
   { id: 'inbox', name: 'Inbox', needs: 3, working: 1, total: 7 },
-  { id: 'glasses-started', name: 'From glasses', needs: 0, working: 1, total: 2 },
-  { id: 'glasses-history', name: 'Glasses history', needs: 1, working: 1, total: 6 },
   { id: 'fg', name: 'Foreground', needs: 2, working: 4, total: 9 },
   { id: 'parakeet', name: 'Parakeet', needs: 1, working: 2, total: 5 },
   { id: 'netrunner', name: 'Netrunner', needs: 0, working: 1, total: 2 },
   { id: 'daemon', name: 'Daemon', needs: 0, working: 0, total: 14 },
 ];
+/** The Inbox count the gateway sends with home, starred or not. */
+export const HOME_NEEDS = 3;
 
 export const LINES: Record<string, GlassesLine[]> = {
   'overlord/g2': [
@@ -190,6 +191,8 @@ export function threadFrame(key: string, rows: GlassesRow[] = ROWS): Extract<Gla
 export class FakeGateway {
   sent: GlassesClientFrame[] = [];
   rows: GlassesRow[] = ROWS.map((r) => ({ ...r }));
+  /** The starred views Home lists (SC-10526). */
+  views: GlassesHomeView[] = HOME;
   /** Transcript the fake STT returns. */
   transcript = 'pause both and send me the final spend number';
   /** Mimic production's first frames: hello with hosts down and an empty Home, the real ones ~1 s later. */
@@ -230,12 +233,12 @@ export class FakeGateway {
         ],
       });
       if (this.coldFeeds) {
-        sock.emit({ t: 'home', views: HOME.map((v) => ({ ...v, needs: 0, working: 0, total: 0 })) });
+        sock.emit({ t: 'home', views: this.views.map((v) => ({ ...v, needs: 0, working: 0, total: 0 })), needs: 0 });
         setTimeout(() => {
           sock.emit({ t: 'hello', protocol: 1, host: 'chiba', hosts: [{ id: 'chiba', up: true }] });
-          sock.emit({ t: 'home', views: HOME });
+          sock.emit({ t: 'home', views: this.views, needs: HOME_NEEDS });
         }, 30);
-      } else sock.emit({ t: 'home', views: HOME });
+      } else sock.emit({ t: 'home', views: this.views, needs: HOME_NEEDS });
     });
     return sock;
   };
@@ -250,7 +253,7 @@ export class FakeGateway {
     const out = (x: GlassesServerFrame) => this.sock?.emit(x);
     if (f.t === 'ping') return out({ t: 'pong' });
     if (f.t === 'open') {
-      if (f.screen === 'home') return out({ t: 'home', views: HOME });
+      if (f.screen === 'home') return out({ t: 'home', views: this.views, needs: HOME_NEEDS });
       if (f.screen === 'view') return out(viewFrame(f.viewId, this.rows, f.limit));
       return out(threadFrame(f.key, this.rows));
     }

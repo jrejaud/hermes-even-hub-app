@@ -112,7 +112,7 @@ describe('brightness hierarchy (rule 3), with the widest steps the scale allows'
     const b = frame('03-home').body;
     expect(b[0].bright).toBe(4);
     expect(b.find((x) => x.text.includes('Foreground'))!.bright).toBe(3);
-    expect(b.find((x) => x.text.includes('From glasses'))!.bright).toBe(1);
+    expect(b.find((x) => x.text.includes('Netrunner'))!.bright).toBe(1);
   });
   it('a question: the asked text 4 (no heading that only repeats "question"), a heading when there is one is 1', () => {
     const b = frame('11-question').body;
