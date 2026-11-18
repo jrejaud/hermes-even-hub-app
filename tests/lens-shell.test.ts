@@ -202,6 +202,28 @@ describe('production first frames and long views (SC-9499 contract note, 2026-11
     );
   });
 
+  // SC-10526: Home is the starred views, so the view landed on need not be the first one. The app asked the gateway
+  // for home[0] while the lens showed the landed view (found by the review, 2026-11-18).
+  it('landing opens the view it landed on: the first starred view with someone waiting, not the first row', async () => {
+    const b = fakeBridge();
+    const fake = new FakeGateway();
+    fake.views = [
+      { id: 'daemon', name: 'Daemon', needs: 0, working: 0, total: 14 },
+      { id: 'parakeet', name: 'Parakeet', needs: 1, working: 2, total: 5 },
+    ];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await startApp({
+      bridge: b as never,
+      connect: fake.connect,
+      defaultProfile: { url: 'ws://fake.invalid', token: 'x' },
+    });
+    await vi.waitFor(() =>
+      expect(
+        fake.sent.filter((f) => f.t === 'open' && 'viewId' in f).map((f) => ('viewId' in f ? f.viewId : '')),
+      ).toEqual(['parakeet']),
+    );
+  });
+
   it('a 300-row view pages in: scrolling near the end asks for the next 20 rows and the cursor walks past 20', async () => {
     const b = fakeBridge();
     const fake = new FakeGateway();

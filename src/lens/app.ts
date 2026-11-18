@@ -192,12 +192,11 @@ export async function startApp(d: AppDeps): Promise<void> {
     if (f.t === 'home' && !landed && now() - bootAt < LANDING_WINDOW_MS) {
       const before = next.stack;
       next = landing(next, saved);
-      if (next.stack !== before) {
+      const to = next.stack[next.stack.length - 1];
+      if (next.stack !== before && to.kind === 'view') {
         landed = true;
-        effects.push(
-          { kind: 'send', frame: { t: 'open', screen: 'view', viewId: next.home![0].id } },
-          { kind: 'persist' },
-        );
+        // The view landing picked, which need not be the first row: Home is the starred views (SC-10526).
+        effects.push({ kind: 'send', frame: { t: 'open', screen: 'view', viewId: to.viewId } }, { kind: 'persist' });
       }
     }
     set(next, effects);

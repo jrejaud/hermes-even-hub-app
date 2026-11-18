@@ -8,7 +8,7 @@
  */
 import type { GlassesServerFrame } from '../gateway/glasses';
 import { MENU_QUIET, gesture, initialState, menuPick, receive, reply, type Gesture, type State } from '../lens/state';
-import { HOME, ROWS, row, threadFrame, viewFrame } from './fake-gateway';
+import { HOME, HOME_NEEDS, ROWS, row, threadFrame, viewFrame } from './fake-gateway';
 
 export interface GalleryFrame {
   name: string;
@@ -29,7 +29,7 @@ function press(s: State, ...gs: Gesture[]): State {
 }
 
 const hello: GlassesServerFrame = { t: 'hello', protocol: 1, host: 'chiba', hosts: [] };
-const online = (): State => feed(initialState('connecting'), hello, { t: 'home', views: HOME });
+const online = (): State => feed(initialState('connecting'), hello, { t: 'home', views: HOME, needs: HOME_NEEDS });
 const inInbox = (): State => feed(press(online(), 'tap'), viewFrame('inbox'));
 const openRow = (i: number): State => {
   let s = inInbox();
@@ -164,12 +164,12 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '03-home',
     looking_for:
-      'Inbox on top, starred views below; cursor ▶ on Inbox; M1 markers (! needs you, … working; quieter views dim); From glasses and Glasses history right under Inbox; counts in header right',
+      'exactly the views starred in Aristo (SC-10526), Inbox first because it is starred; cursor ▶ on Inbox; M1 markers (! needs you, … working; quieter views dim); no From glasses or Glasses history; counts in header right',
     state: online(),
   },
   {
     name: '04-home-cursor-down',
-    looking_for: 'cursor on the row under Inbox (From glasses); rows do not shift sideways',
+    looking_for: 'cursor on the row under Inbox (Foreground); rows do not shift sideways',
     state: press(online(), 'down'),
   },
   {
@@ -197,7 +197,8 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '09-view-empty',
     looking_for: "an empty view says 'Nothing here.'",
-    state: feed(press(online(), 'down', 'down', 'down', 'down', 'down', 'tap'), viewFrame('netrunner', [])),
+    // Netrunner is the 4th starred view (index 3).
+    state: feed(press(online(), 'down', 'down', 'down', 'tap'), viewFrame('netrunner', [])),
   },
   { name: '10-view-loading', looking_for: 'view opened, frame not here yet: Loading…', state: press(online(), 'tap') },
   {
@@ -378,5 +379,11 @@ export const LENS_FRAMES: GalleryFrame[] = [
       ask: 'Include trial users in the cohort?',
       promptId: 'p-churn',
     }),
+  },
+  {
+    name: '37-home-no-favorites',
+    looking_for:
+      "nothing starred in Aristo (SC-10526): header right '3 need you', body says to star views in Aristo; no blank home, no Inbox",
+    state: feed(initialState('connecting'), hello, { t: 'home', views: [], needs: HOME_NEEDS }),
   },
 ];

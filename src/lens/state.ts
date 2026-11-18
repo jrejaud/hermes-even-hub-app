@@ -88,7 +88,10 @@ export interface State {
   conn: Conn;
   /** Screens, root first. The top one is on the lens. Home is always the root. */
   stack: Screen[];
+  /** The views starred in Aristo (SC-10526): Inbox only when it is starred, so never assume it is first. */
   home: GlassesHomeView[] | null;
+  /** How many sessions need Jordan overall (the Inbox count), from the home frame. */
+  needs: number;
   view: ViewFrame | null;
   thread: ThreadFrame | null;
   /** Cursor per screen, by ITEM ID (not index), so a reorder never moves it to another session. */
@@ -130,6 +133,7 @@ export function initialState(conn: Conn = 'connecting'): State {
     conn,
     stack: [{ kind: 'home' }],
     home: null,
+    needs: 0,
     view: null,
     thread: null,
     cursor: {},
@@ -344,7 +348,7 @@ export function receive(s: State, f: ServerFrame, now: number): { state: State; 
       // A (re)connect: say which screen is open; the server answers with its frame.
       return { state: { ...s, conn: 'online' }, effects: [{ kind: 'send', frame: { t: 'open', ...openFor(s) } }] };
     case 'home':
-      return { state: { ...s, home: f.views }, effects: [] };
+      return { state: { ...s, home: f.views, needs: f.needs }, effects: [] };
     case 'view':
       return { state: { ...s, view: f, answered: pruneAnswered(s.answered, f) }, effects: [] };
     case 'thread': {
@@ -912,7 +916,7 @@ export interface Saved {
 
 export function toSaved(s: State, now: number): Saved {
   const stack = s.stack.filter((sc) => sc.kind !== 'dictate' && sc.kind !== 'menu');
-  return { stack, inboxNeeds: s.home?.[0]?.needs ?? 0, at: now };
+  return { stack, inboxNeeds: s.needs, at: now };
 }
 
 /** Start where the wearer left off. */
@@ -925,15 +929,17 @@ export function restore(s: State, saved: Saved | null): State {
 
 /**
  * The first Home after a cold start decides the landing screen: if more sessions need Jordan than when the
- * app was last left, he most likely opened it from a lens notification, so land on Inbox (which Aristo sorts
- * waiting-first, so that session is on top). Otherwise stay where he was.
+ * app was last left, he most likely opened it from a lens notification, so land on the first starred view that
+ * has someone waiting (Inbox when it is starred: Aristo sorts it waiting-first, so that session is on top). The
+ * home is exactly Aristo's Favorites (SC-10526), so a view that is not starred is never opened here. Otherwise stay.
  */
 export function landing(s: State, saved: Saved | null): State {
-  const inbox = s.home?.[0];
-  if (!inbox) return s;
+  if (!s.home) return s;
   if (top(s).kind === 'quiet') return s;
-  if (saved && inbox.needs <= saved.inboxNeeds) return s;
-  if (!saved && inbox.needs === 0) return s;
-  const stack: Screen[] = [{ kind: 'home' }, { kind: 'view', viewId: inbox.id, name: inbox.name }];
+  if (saved && s.needs <= saved.inboxNeeds) return s;
+  if (!saved && s.needs === 0) return s;
+  const to = s.home.find((v) => v.needs > 0);
+  if (!to) return s;
+  const stack: Screen[] = [{ kind: 'home' }, { kind: 'view', viewId: to.id, name: to.name }];
   return resetCursor({ ...s, stack }, stack[1]);
 }

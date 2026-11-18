@@ -317,8 +317,15 @@ function layoutRaw(s: State, now: number): LensFrame {
         status ?? 'loading…',
         s.conn === 'online' ? 'Loading views…' : 'Reaching Aristo on Chiba…',
       );
-    const inbox = s.home[0];
-    const right = status ?? (inbox?.needs ? `${inbox.needs} need you` : 'all clear');
+    // The home is exactly Aristo's Favorites (SC-10526): the Inbox count comes with the frame, not from a first row.
+    const right = status ?? (s.needs ? `${s.needs} need you` : 'all clear');
+    if (!s.home.length)
+      return message(
+        'Aristo',
+        right,
+        'No favorites yet. Star views in Aristo to see them here.',
+        s.needs && !status ? B.needs : B.normal,
+      );
     const list = items(s);
     const cur = cursorIndex(s);
     const body = listBoxes(list, cur, LIST_ROWS, (it, on) => {
@@ -331,7 +338,7 @@ function layoutRaw(s: State, now: number): LensFrame {
       left: 'Aristo',
       right,
       leftBright: B.normal,
-      rightBright: inbox?.needs && !status ? B.needs : B.normal,
+      rightBright: s.needs && !status ? B.needs : B.normal,
       body,
     };
   }
