@@ -9,6 +9,7 @@ import { GatewayClient, type GatewayProfile, type SocketLike } from '../gateway/
 import type { GlassesServerFrame as ServerFrame } from '../gateway/glasses';
 import { serializeLatest } from '../util/coalesce';
 import { Lens } from './draw';
+import { canvasRasterize } from './raster';
 import { toInput } from './input';
 import { osMenuPick } from './os-menu';
 import { layout } from './layout';
@@ -54,7 +55,7 @@ export interface AppDeps {
 export async function startApp(d: AppDeps): Promise<void> {
   const { bridge } = d;
   const now = d.now ?? (() => Date.now());
-  const lens = new Lens(bridge);
+  const lens = new Lens(bridge, canvasRasterize);
 
   let profile = (await loadProfile(bridge)) ?? d.defaultProfile ?? null;
   const saved: Saved | null = await loadSaved(bridge);
@@ -275,7 +276,7 @@ export async function startApp(d: AppDeps): Promise<void> {
       } else show(state);
       return;
     }
-    if (!state.banner && !state.notice) return;
+    if (!state.banner && !state.notice && !state.card) return;
     const next = expire(state, t);
     if (next !== state) set(next);
   }, TICK_MS);

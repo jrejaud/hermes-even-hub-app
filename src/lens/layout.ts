@@ -18,6 +18,7 @@ import type { GlassesMark, GlassesRow } from '../gateway/glasses';
 import { wrapTextLines } from './wrap';
 import { CONVO_LINES, conversationLines, convoWindow } from './conversation';
 import type { OsMenuItem } from './os-menu';
+import { HEADER_W, cardLayout, cornerOf, type Corner, type FreeBox, type ImageBox } from './card';
 import {
   anchorFor,
   menuActions,
@@ -25,6 +26,7 @@ import {
   cursorIndex,
   items,
   liveAsk,
+  micLive,
   sendTarget,
   threadFor,
   top,
@@ -81,6 +83,12 @@ export interface LensFrame {
   body: Box[];
   /** The glasses' own tap-then-hold menu items for this screen (os-menu.ts). */
   menu?: OsMenuItem[];
+  /** The corner state icon (SC-11683). */
+  corner?: Corner;
+  /** Free-placed boxes that replace `body` (a show-me card). */
+  free?: FreeBox[];
+  /** Image boxes (a card's big value, its sparkline). */
+  images?: ImageBox[];
 }
 
 // ------------------------------------------------------------------------------------------- geometry
@@ -286,12 +294,14 @@ function message(left: string, right: string, text: string, rightBright: Bright 
 }
 
 export function layout(s: State, now: number = Date.now()): LensFrame {
-  const f = layoutRaw(s, now);
+  // A banner (someone needs you) wins over a card, for drawing as for gestures (state.ts gesture order).
+  const f = s.card && !s.banner && !micLive(top(s)) ? cardFrame(s) : layoutRaw(s, now);
   return {
     ...f,
     menu: menuActions(s),
+    corner: cornerOf(s),
     // A clear gutter between where-you-are and the live status (the critic saw them nearly touch).
-    left: fit(f.left, SCREEN.w - rightWidth(f.right) - 2 * PAD - 40),
+    left: fit(f.left, HEADER_W - rightWidth(f.right) - 2 * PAD - 40),
     right: fit(f.right, 290),
     body: f.body.slice(0, BODY_BOXES).map((b) => ({ ...b, text: clampBytes(b.text) })),
   };
@@ -506,7 +516,7 @@ function dictationFrame(s: State, d: Dictation, status: string | null, now: numb
     })),
   ];
   const secs = Math.max(0, Math.floor((now - d.startedAt) / 1000));
-  const right = status && s.notice ? status : d.phase === 'listening' ? `● ${secs}s` : PHASE_RIGHT[d.phase];
+  const right = status && s.notice ? status : d.phase === 'listening' ? `${secs}s` : PHASE_RIGHT[d.phase];
   return {
     left: d.title,
     right,
@@ -521,6 +531,22 @@ function dictLabel(it: Item): string {
   if (it.kind === 'redo') return 'Say it again';
   if (it.kind === 'cancel') return 'Cancel';
   return '';
+}
+
+/** A show-me card over the open screen: the header keeps where you are; "pinned" once tapped. */
+function cardFrame(s: State): LensFrame {
+  const sc = top(s);
+  const left = sc.kind === 'home' || sc.kind === 'quiet' ? 'Aristo' : 'title' in sc ? sc.title : 'Aristo';
+  const { free, images } = cardLayout(s.card!);
+  return {
+    left,
+    right: s.card!.pinned ? 'pinned' : '',
+    leftBright: B.normal,
+    rightBright: B.dim,
+    body: [],
+    free,
+    images,
+  };
 }
 
 function bannerFrame(s: State): LensFrame {

@@ -386,4 +386,85 @@ export const LENS_FRAMES: GalleryFrame[] = [
       "nothing starred in Aristo (SC-10526): header right '3 need you', body says to star views in Aristo; no blank home, no Inbox",
     state: feed(initialState('connecting'), hello, { t: 'home', views: [], needs: HOME_NEEDS }),
   },
+  // ---- SC-11683: show-me cards and the corner state icon
+  {
+    name: '38-card-stat',
+    looking_for:
+      'stat card over a working session: bordered card, title, big $4,210, +18% vs October, a sparkline ending in a dot, "last 30 days"; corner shows the thinking dots',
+    state: feed(openRow(3), {
+      t: 'card',
+      card: {
+        id: 'g-stat',
+        key: 'overlord/g2',
+        title: 'Lodestone revenue · November',
+        ttlMs: null,
+        body: {
+          kind: 'stat',
+          value: '$4,210',
+          delta: '+18% vs October',
+          spark: [9, 11, 10, 14, 13, 12, 16, 18, 15, 19, 22, 20, 24, 27, 25, 29],
+          sparkLabel: 'last 30 days',
+        },
+      },
+    }),
+  },
+  {
+    name: '39-card-list',
+    looking_for:
+      'list card: title, five flight rows each on one line (cut with … if long), "+2 more" dim at the bottom',
+    state: feed(online(), {
+      t: 'card',
+      card: {
+        id: 'g-list',
+        key: null,
+        title: 'Da Nang → Tokyo · Fri 5 Dec',
+        ttlMs: null,
+        body: {
+          kind: 'list',
+          rows: [
+            'VN 318  07:05 → 14:30  direct  $212',
+            'VJ 822  09:40 → 18:05  1 stop  $148',
+            'NH 834  10:15 → 18:20  direct  $305',
+            'JL 752  23:30 → 07:10  direct  $281',
+            'VN 300  13:00 → 20:40  direct  $260',
+            'VJ 900  16:20 → 01:10  1 stop  $139',
+            'CX 750  18:05 → 06:30  1 stop  $244',
+          ],
+        },
+      },
+    }),
+  },
+  {
+    name: '40-card-table-pinned',
+    looking_for:
+      'table card, tapped: header right "pinned"; four columns host/disk/load/up, numbers right-aligned in their columns',
+    state: press(
+      feed(online(), {
+        t: 'card',
+        card: {
+          id: 'g-table',
+          key: null,
+          title: 'Servers · disk and load',
+          ttlMs: 20_000,
+          body: {
+            kind: 'table',
+            head: ['host', 'disk', 'load', 'up'],
+            rows: [
+              ['chiba', '61%', '0.4', '12d'],
+              ['overlord', '78%', '2.1', '3d'],
+              ['box', '34%', '0.2', '20d'],
+              ['alastor', '88%', '1.3', '41d'],
+            ],
+            align: ['l', 'r', 'r', 'r'],
+          },
+        },
+      }),
+      'tap',
+    ),
+  },
+  {
+    name: '41-corner-ask',
+    looking_for: 'a session waiting on a question: the ? icon in the top-right corner, header text never runs under it',
+    state: openRow(0),
+  },
 ];
