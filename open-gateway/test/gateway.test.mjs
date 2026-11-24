@@ -443,15 +443,30 @@ test('the server reads caps from the URL and from the auth frame', async () => {
 });
 
 test('an answer with text is only its words: option 1 riding along never approves (review F1c0f76041f)', async () => {
-  for (const client of [null, W]) {
+  for (const [client, text] of [
+    [null, ''],
+    [W, ''],
+    [null, 5],
+    [null, null],
+    [W, null],
+  ]) {
     const g = new Gateway({ query: fakeQuery });
     const s = { key: 'local/t', title: 't', lines: [], status: 'working', changedAt: 0, box: { push() {} } };
     g.sessions.set(s.key, s);
     const p = g.permission(s, 'Bash', { command: 'rm -rf build' }, { signal: new AbortController().signal });
     await tick();
-    assert.equal(g.answer(s.key, { promptId: s.ask.promptId, option: 1, text: '' }, client), null);
-    const r = await p;
-    assert.equal(r.behavior, 'deny', `text + option 1 from ${client ? 'a current' : 'an old'} lens is a refusal`);
+    const why = g.answer(s.key, { promptId: s.ask.promptId, option: 1, text }, client);
+    if (typeof text === 'string') {
+      assert.equal(why, null);
+      assert.equal((await p).behavior, 'deny', 'string text + option 1 is a refusal');
+    } else if (client) {
+      assert.equal(why, null, 'non-string text is dropped; the current lens was offered Yes');
+      assert.equal((await p).behavior, 'allow');
+    } else {
+      assert.equal(why, 'changed', 'non-string text cannot carry option 1 past an old lens');
+      g.answer(s.key, { promptId: s.ask.promptId, option: 3 });
+      assert.equal((await p).behavior, 'deny');
+    }
   }
   const g = new Gateway({ query: fakeQuery });
   assert.equal(g.answer('local/none', null), 'changed', 'a non-object answer is refused, not thrown');

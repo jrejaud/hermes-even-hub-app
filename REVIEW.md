@@ -19,6 +19,10 @@ browser, and tools loaded into a session from somewhere else (a project's `.mcp.
   other client, such as an older lens build, gets only No. A lens declaring `ask-whole` measures the detail in pixels
   (`shownWhole` in `src/lens/layout.ts`; dropped glyphs count as not whole) and offers only No for what it cannot
   show whole. The client check is trusted only because the token holder chose to install that lens.
+- an approval carried by anything but an offered option: a dictated (text) answer is reduced to its words before
+  anything reads it (`answer()` in `open-gateway/core.mjs`), so text can refuse a permission but never approve one.
+  This guard holds against a determined client (any socket that has the token but not `ask-whole`); a bypass is a
+  finding.
 - the token or approvals crossing a network in cleartext by default (plain HTTP binds 127.0.0.1; TLS or
   `tailscale serve` for the phone)
 

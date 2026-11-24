@@ -437,7 +437,16 @@ export class Gateway {
     if (!raw || typeof raw !== 'object') return 'changed';
     // A dictated answer is ONLY its words: any option or answers riding along are dropped, so text can refuse a
     // permission or answer a question but never approve (REVIEW.md). Every other answer must be one offered to `c`.
-    const a = typeof raw.text === 'string' ? { promptId: raw.promptId, text: raw.text } : raw;
+    // Rebuilt field by field, never passed through: either words, or an option/answers with no `text` at all, so
+    // the offered-option check below always runs on anything that is not words.
+    const a =
+      typeof raw.text === 'string'
+        ? { promptId: raw.promptId, text: raw.text }
+        : {
+            promptId: raw.promptId,
+            ...(raw.option !== undefined ? { option: raw.option } : {}),
+            ...(raw.answers !== undefined ? { answers: raw.answers } : {}),
+          };
     const s = this.sessions.get(key);
     if (!s?.ask || s.ask.promptId !== a.promptId) return 'gone';
     const ask = s.ask;
