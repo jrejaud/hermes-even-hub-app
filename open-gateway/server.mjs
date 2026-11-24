@@ -46,53 +46,87 @@ export const CARD_SHAPE = {
   ttl_seconds: z.number().optional().describe('How long it stays (default 20; 0 = until dismissed)'),
 };
 
+// One process holds every session, so nothing a client sends may throw out of a request path (REVIEW.md). Every
+// entry point below (HTTP request, upgrade, socket message) runs inside its own catch, and the helpers they use never
+// throw on hostile input.
+
+/** Constant-time compare of two strings; anything that is not a non-empty string is no match. */
 function same(a, b) {
-  const x = Buffer.from(String(a ?? ''));
-  const y = Buffer.from(String(b ?? ''));
+  if (typeof a !== 'string' || typeof b !== 'string' || !a) return false;
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
 function bearer(req) {
-  const h = req.headers.authorization ?? '';
-  return h.startsWith('Bearer ') ? h.slice(7) : null;
+  const h = req.headers.authorization;
+  return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7) : null;
+}
+
+/** The request target as a URL, or null when it does not parse (`//[`, a bad port). */
+function urlOf(req) {
+  try {
+    return new URL(req.url ?? '/', 'http://x');
+  } catch {
+    return null; // error-ok: an unparsable target is answered 400 or dropped by the caller
+  }
 }
 
 /** Build the HTTP + WebSocket server around a Gateway. Returns the http.Server (not listening). */
-export function serve({ gateway, token, stt, tls = null }) {
-  const handler = async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://x');
+export function serve({ gateway, token, stt, tls = null, log = (m) => console.error(m) }) {
+  async function route(req, res) {
+    const url = urlOf(req);
+    if (!url) return void res.writeHead(400).end();
     if (req.method === 'GET' && url.pathname === '/health') return void res.end('ok');
     // Any agent, script or other Claude Code session can push a card: POST the show_card arguments as JSON.
     if (req.method === 'POST' && url.pathname === '/api/card') {
       if (!same(bearer(req) ?? url.searchParams.get('token'), token)) return void res.writeHead(401).end('bad token');
       let body = '';
-      for await (const chunk of req) body += chunk;
-      try {
-        const card = gateway.showCard(null, JSON.parse(body));
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true, id: card.id }));
-      } catch (e) {
-        res
-          .writeHead(400, { 'content-type': 'application/json' })
-          .end(JSON.stringify({ ok: false, error: String(e.message ?? e) }));
+      for await (const chunk of req) {
+        body += chunk;
+        if (body.length > 256 * 1024) return void res.writeHead(413).end();
       }
-      return;
+      let card;
+      try {
+        card = gateway.showCard(null, JSON.parse(body));
+      } catch (e) {
+        return void res
+          .writeHead(400, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+      }
+      return void res
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ ok: true, id: card.id }));
     }
     res.writeHead(404).end();
-  };
+  }
+  const handler = (req, res) =>
+    route(req, res).catch((e) => {
+      // A dropped connection mid-body, or anything else: answer if we still can, never take the process down.
+      log(`open gateway: request failed: ${e?.message ?? e}`);
+      if (!res.headersSent && !res.destroyed) res.writeHead(500).end();
+      else res.destroy();
+    });
   // TLS when given a cert and key; otherwise plain HTTP, which the CLI binds to 127.0.0.1 (see README: tailscale serve).
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
   server.on('upgrade', (req, sock, head) => {
-    const url = new URL(req.url ?? '/', 'http://x');
-    if (url.pathname !== PATH) return void sock.destroy();
-    const given = url.searchParams.get('token') ?? bearer(req);
-    // A wrong token in the URL or header is refused before the upgrade; none at all may come as the first frame.
-    if (given !== null && !same(given, token)) {
-      sock.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      return void sock.destroy();
+    try {
+      sock.on('error', () => sock.destroy());
+      const url = urlOf(req);
+      if (!url || url.pathname !== PATH) return void sock.destroy();
+      const given = url.searchParams.get('token') ?? bearer(req);
+      // A wrong token in the URL or header is refused before the upgrade; none at all may come as the first frame.
+      if (given !== null && !same(given, token)) {
+        sock.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        return void sock.destroy();
+      }
+      wss.handleUpgrade(req, sock, head, (ws) => accept(ws, given !== null));
+    } catch (e) {
+      log(`open gateway: upgrade failed: ${e?.message ?? e}`);
+      sock.destroy();
     }
-    wss.handleUpgrade(req, sock, head, (ws) => accept(ws, given !== null));
   });
 
   function accept(ws, authed) {
@@ -101,15 +135,14 @@ export function serve({ gateway, token, stt, tls = null }) {
     const timer = authed ? null : setTimeout(() => ws.close(1008, 'auth timeout'), 5000);
     // An oversized or malformed frame makes `ws` emit 'error'; unhandled, it would crash every session.
     ws.on('error', () => ws.terminate());
-    ws.on('message', async (raw) => {
+    const onFrame = async (raw) => {
       let f;
       try {
         f = JSON.parse(String(raw));
       } catch {
         return send({ t: 'refused', reqId: '', reason: 'bad', message: 'Not JSON.' });
       }
-      // JSON that is not an object (`null`, a number) is refused, never dereferenced: a throw here would be an
-      // unhandled rejection that takes the whole gateway down, before any token was checked.
+      // JSON that is not an object (`null`, a number) is refused, never dereferenced.
       if (!f || typeof f !== 'object') return send({ t: 'refused', reqId: '', reason: 'bad', message: 'Not a frame.' });
       if (!c) {
         if (f.t !== 'auth' || !same(f.token, token)) return ws.close(1008, 'bad token');
@@ -120,9 +153,20 @@ export function serve({ gateway, token, stt, tls = null }) {
       try {
         await gateway.handle(c, f, send, stt);
       } catch (e) {
-        send({ t: 'refused', reqId: f.reqId ?? '', reason: 'error', message: String(e?.message ?? e) });
+        send({
+          t: 'refused',
+          reqId: typeof f.reqId === 'string' ? f.reqId : '',
+          reason: 'error',
+          message: String(e?.message ?? e),
+        });
       }
-    });
+    };
+    ws.on('message', (raw) =>
+      onFrame(raw).catch((e) => {
+        log(`open gateway: frame failed: ${e?.message ?? e}`);
+        ws.terminate();
+      }),
+    );
     ws.on('close', () => {
       clearTimeout(timer);
       if (c) gateway.detach(c);

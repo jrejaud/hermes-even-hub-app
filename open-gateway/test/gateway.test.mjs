@@ -328,3 +328,42 @@ test('only our own show_card skips the lens; a same-named tool from another MCP 
   g.answer(s.key, { promptId: s.ask.promptId, option: 3 });
   assert.equal((await other).behavior, 'deny');
 });
+
+test('hostile requests never take the gateway down (review F6abe23ceec, F18717597d7, F267511a4fa, F31a69dce39)', async () => {
+  const net = await import('node:net');
+  const g = new Gateway({ query: fakeQuery });
+  const server = serve({ gateway: g, token: 't', stt: async () => '', log: () => {} });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const raw = (text) =>
+    new Promise((r) => {
+      const s = net.connect(port, '127.0.0.1', () => s.end(text));
+      s.on('error', () => r());
+      s.on('close', () => r());
+      s.resume();
+    });
+  // unparsable request targets, as a plain request and as an upgrade
+  await raw('GET //[ HTTP/1.1\r\nHost: x\r\n\r\n');
+  await raw('GET http://a:99999999/ HTTP/1.1\r\nHost: x\r\n\r\n');
+  await raw(
+    'GET //[ HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n', // gitleaks:allow RFC 6455's sample nonce
+  );
+  // a card POST whose client drops mid-body
+  await new Promise((r) => {
+    const s = net.connect(port, '127.0.0.1', () => {
+      s.write('POST /api/card HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer t\r\nContent-Length: 1000\r\n\r\n{"title":');
+      setTimeout(() => s.destroy(), 20);
+    });
+    s.on('close', r);
+  });
+  // an auth frame whose token is not a string
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/api/glasses`);
+  await new Promise((r) => ws.on('open', r));
+  const closed = new Promise((r) => ws.on('close', r));
+  ws.send(JSON.stringify({ t: 'auth', token: { toString: 1 } }));
+  await closed;
+  await new Promise((r) => setTimeout(r, 50));
+  const ok = await fetch(`http://127.0.0.1:${port}/health`);
+  assert.equal(await ok.text(), 'ok', 'still serving after every hostile request');
+  server.close();
+});
