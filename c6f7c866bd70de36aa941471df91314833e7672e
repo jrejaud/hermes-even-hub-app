@@ -1,0 +1,195 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "APPROVE",
+  "head": "c6f7c866bd70de36aa941471df91314833e7672e",
+  "tree": "69e731d02f559cff3a166779a58daf8158330e4a",
+  "base": "66779e79c3d6aa76b2ee3cd7f09c994414cbf431",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 0,
+    "outputSha256": "dd05c644fffda2c01b8eb0780d26f445ff5b9323db3480bd4e25d3cb5fade1b2"
+  },
+  "review": {
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· [resolved: fixed] open-gateway/core.mjs:440 answer() reduces an answer to its words only when `text` is a string, but skips the offered-option check whenever `text !== undefined`, so an answer like {promptId, option:1, text:5} (or text:null) passes no check and finish() approves it, letting a client without ask-whole (or any client, for an option it was not offered) say Yes to a permission. (F4cf71a2e32)",
+      "· [resolved: fixed] open-gateway/core.mjs:555 A client without the token-holder's `ask-whole` lens can still approve a permission. It sends `answer:{promptId, option:1, text:null}` (or any `text` that is not a string). The gate at line 550 only turns string `text` into a words-only answer, but line 555 skips the offered-option check whenever `text !== undefined`. `finish(a)` then sees `option:1` and allows the tool call. `option:2` works the same way and also adds the suggested permanent permissions. (F4e452b7eb6)",
+      "· round 2 (incremental — only edits since the last round): 0 new candidate(s), 0 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 2,
+      "mode": "incremental",
+      "reviewMd": null,
+      "findings": [
+        {
+          "id": "F4cf71a2e32",
+          "round": 1,
+          "tier": "blocking",
+          "pass": "bugs",
+          "severity": "high",
+          "file": "open-gateway/core.mjs",
+          "line": 440,
+          "summary": "answer() reduces an answer to its words only when `text` is a string, but skips the offered-option check whenever `text !== undefined`, so an answer like {promptId, option:1, text:5} (or text:null) passes no check and finish() approves it, letting a client without ask-whole (or any client, for an option it was not offered) say Yes to a permission.",
+          "class": "inconsistent-type-guard",
+          "verified": false,
+          "outcome": "fixed"
+        },
+        {
+          "id": "F60f2f40278",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "summary": "Card scroll offset is clamped to rows-1 in cardGesture/receive, but cardLayout clamps the displayed start to rows-CARD_ROWS, so swiping down past the last page keeps raising a hidden offset and the next up-swipes do nothing visible until it comes back below rows-CARD_ROWS.",
+          "class": "inconsistent-clamp-bound",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F9310b78a37",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "medium",
+          "file": "open-gateway/core.mjs",
+          "line": 543,
+          "summary": "Closing a session (patch done/closed) only closes the input queue and deletes the session; a pending ask is never resolved and the query is never interrupted, so the SDK's canUseTool promise hangs forever and the Claude Code process for that session leaks along with every queued ask.",
+          "class": "orphaned-pending-promise-on-close",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "Ff20b6acaa0",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "open-gateway/core.mjs",
+          "line": 522,
+          "summary": "Once a session's query has ended or thrown (pump sets status 'error'/'idle'), `say` still pushes the user's words into an inbox nothing reads, sets status back to 'working', and replies ok, so the message is silently lost and the session shows 'Working' forever.",
+          "class": "write-to-dead-consumer-reported-ok",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F1471339df2",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "open-gateway/stt.mjs",
+          "line": 28,
+          "summary": "The speech-to-text fetch has no timeout or AbortSignal, so a slow or hung STT endpoint leaves the lens's listen.end/stt request waiting forever with no ok or refused.",
+          "class": "missing-timeout",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "Fd9a9d2b73f",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "open-gateway/core.mjs",
+          "line": 553,
+          "summary": "Listen audio is buffered without limit and GLASSES_LISTEN_MAX_MS is never enforced, which departs from the protocol: the listen never ends by itself, and memory grows for as long as audio frames arrive.",
+          "class": "contract-drift-unbounded-buffer",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "Fdd2473cec4",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "open-gateway/core.mjs",
+          "line": 549,
+          "summary": "A new `listen` silently overwrites the open one without answering it `refused gone (\"replaced\")` as the protocol requires, so a client waiting on the old reqId never gets a reply.",
+          "class": "contract-drift-missing-reply",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F25aa5b5457",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "open-gateway/core.mjs",
+          "line": 301,
+          "summary": "create() adds the session to the map before calling query; if query throws synchronously, the error goes back as a refusal, but a ghost session stays listed as 'Working' with no pump behind it.",
+          "class": "partial-write-before-failure",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F5add84a917",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "open-gateway/test/gateway.test.mjs",
+          "line": 2627,
+          "summary": "No test builds a Gateway with `tool`/`mcp`/`cardShape`, so `create()` never registers the `glasses` MCP server and `cardServer()` never runs. The agent's own show_card path (server name, tool handler, CARD_SHAPE) has no test, and neither does the exact-name permission bypass that depends on that server name, even though the README says the tests cover cards.",
+          "class": "untested-changed-path",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "Ff8b2bcbaf4",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/app.ts",
+          "line": 3257,
+          "summary": "The app timer now also wakes for `state.card`, but no app-level test pushes a card and checks that it expires. If this condition regresses, a card with a ttl never clears while nothing else is happening, and the tests would still pass.",
+          "class": "untested-changed-path",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "Fa78f53bc45",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/lens-layout.test.ts",
+          "line": 4286,
+          "summary": "The overlap check exempts a blank bordered box from comparison with every other box. It never checks that the frame actually encloses the boxes inside it, as the comment claims, so a card frame that overlaps the header or the corner image would pass.",
+          "class": "assertion-weaker-than-claim",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F4e452b7eb6",
+          "round": 1,
+          "tier": "blocking",
+          "pass": "security",
+          "severity": "high",
+          "file": "open-gateway/core.mjs",
+          "line": 555,
+          "summary": "A client without the token-holder's `ask-whole` lens can still approve a permission. It sends `answer:{promptId, option:1, text:null}` (or any `text` that is not a string). The gate at line 550 only turns string `text` into a words-only answer, but line 555 skips the offered-option check whenever `text !== undefined`. `finish(a)` then sees `option:1` and allows the tool call. `option:2` works the same way and also adds the suggested permanent permissions.",
+          "class": "answer-guard-type-confusion",
+          "verified": false,
+          "outcome": "fixed"
+        }
+      ]
+    },
+    "reused": {
+      "from": "trunk-push review --staged",
+      "tree": "69e731d02f559cff3a166779a58daf8158330e4a",
+      "at": "2026-11-24T15:52:00.773Z"
+    }
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-24T15:55:21.503Z"
+}
