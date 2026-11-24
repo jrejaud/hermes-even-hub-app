@@ -441,3 +441,18 @@ test('the server reads caps from the URL and from the auth frame', async () => {
   for (const w of [a, b, c]) w.close();
   server.close();
 });
+
+test('an answer with text is only its words: option 1 riding along never approves (review F1c0f76041f)', async () => {
+  for (const client of [null, W]) {
+    const g = new Gateway({ query: fakeQuery });
+    const s = { key: 'local/t', title: 't', lines: [], status: 'working', changedAt: 0, box: { push() {} } };
+    g.sessions.set(s.key, s);
+    const p = g.permission(s, 'Bash', { command: 'rm -rf build' }, { signal: new AbortController().signal });
+    await tick();
+    assert.equal(g.answer(s.key, { promptId: s.ask.promptId, option: 1, text: '' }, client), null);
+    const r = await p;
+    assert.equal(r.behavior, 'deny', `text + option 1 from ${client ? 'a current' : 'an old'} lens is a refusal`);
+  }
+  const g = new Gateway({ query: fakeQuery });
+  assert.equal(g.answer('local/none', null), 'changed', 'a non-object answer is refused, not thrown');
+});

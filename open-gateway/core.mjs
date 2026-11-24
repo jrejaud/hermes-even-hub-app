@@ -433,7 +433,11 @@ export class Gateway {
   }
 
   /** Resolve an ask. Returns a refusal reason, or null when it landed. */
-  answer(key, a, c = null) {
+  answer(key, raw, c = null) {
+    if (!raw || typeof raw !== 'object') return 'changed';
+    // A dictated answer is ONLY its words: any option or answers riding along are dropped, so text can refuse a
+    // permission or answer a question but never approve (REVIEW.md). Every other answer must be one offered to `c`.
+    const a = typeof raw.text === 'string' ? { promptId: raw.promptId, text: raw.text } : raw;
     const s = this.sessions.get(key);
     if (!s?.ask || s.ask.promptId !== a.promptId) return 'gone';
     const ask = s.ask;
