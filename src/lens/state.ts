@@ -24,6 +24,8 @@ import type {
 } from '../gateway/glasses';
 import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from '../gateway/glasses';
 import { CONVO_LINES, conversationLines, glide, messageLines, scrollAnchor, topLine } from './conversation';
+// layout.ts imports this module too; shownWhole is only called inside functions, so the cycle is safe at load.
+import { shownWhole } from './layout';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
@@ -241,7 +243,13 @@ export function items(s: State, sc: Screen = top(s)): Item[] {
   if (sc.kind === 'session') {
     // With an ask the options are the items; otherwise the screen is a conversation you scroll (no cursor).
     const ask = liveAsk(s, sc.key);
-    return ask ? ask.options.map((_, index) => ({ id: `opt:${index}`, kind: 'option', index })) : [];
+    if (!ask) return [];
+    // A permission whose detail the lens cannot show whole offers only its refusing options: nobody approves a
+    // command they could not read (SC-11683 review). Indexes stay the gateway's, so a tap echoes the right payload.
+    const whole = ask.kind !== 'permission' || shownWhole(ask.detail || ask.context || '');
+    return ask.options.flatMap((o, index) =>
+      whole || o.kind === 'no' ? [{ id: `opt:${index}`, kind: 'option' as const, index }] : [],
+    );
   }
   if (sc.kind === 'menu') {
     const t = threadFor(s, sc.key);

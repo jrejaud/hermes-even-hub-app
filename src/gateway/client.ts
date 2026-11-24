@@ -31,6 +31,9 @@ interface Deps {
 const PING_MS = 20_000;
 const SILENT_MS = 45_000;
 
+/** Capabilities this lens build declares to the gateway (`caps=` on the socket URL). */
+export const LENS_CAPS = ['ask-whole'];
+
 /** `<base>/api/glasses?token=…`: a WebView cannot set headers on a WebSocket, so the token rides the query. */
 export function gatewayUrl(p: GatewayProfile): string {
   const u = new URL(p.url.trim());
@@ -38,6 +41,9 @@ export function gatewayUrl(p: GatewayProfile): string {
   if (u.protocol === 'http:') u.protocol = 'ws:';
   if (u.pathname === '/' || u.pathname === '') u.pathname = GLASSES_PATH;
   u.searchParams.set('token', p.token.trim());
+  // What this build guards on its own (SC-11683): `ask-whole` = it offers only No for a permission it cannot show whole
+  // (state.ts items). A gateway gives a client without it only No, so an older lens can never approve an unread command.
+  u.searchParams.set('caps', LENS_CAPS.join(','));
   return u.toString();
 }
 

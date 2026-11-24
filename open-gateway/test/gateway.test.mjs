@@ -59,11 +59,13 @@ function fakeQuery({ prompt, options }) {
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 10));
+/** A client that declared `ask-whole` (the current lens). */
+const W = { whole: true };
 
 function rig() {
   const g = new Gateway({ query: fakeQuery, cwd: '/tmp/demo', now: () => 1_700_000_000_000 });
   const sent = [];
-  const c = g.attach((f) => sent.push(f));
+  const c = g.attach((f) => sent.push(f), ['ask-whole']);
   const call = (f) =>
     g.handle(
       c,
@@ -246,7 +248,7 @@ test('parallel permission asks wait their turn; both resolve (review F5aef514b4a
   const b = g.permission(s, 'Bash', { command: 'two' }, { signal: sig });
   await tick();
   assert.equal(s.ask.detail, 'one');
-  assert.equal(g.answer(s.key, s.ask.options[0].answer), null);
+  assert.equal(g.answer(s.key, s.ask.options[0].answer, W), null);
   assert.equal((await a).behavior, 'allow');
   await tick();
   assert.equal(s.ask.detail, 'two', 'the second ask shows once the first is answered');
@@ -266,7 +268,7 @@ test('an aborted ask settles as denied and frees the queue', async () => {
   assert.equal((await a).behavior, 'deny');
   await tick();
   assert.equal(s.ask.detail, 'two');
-  g.answer(s.key, s.ask.options[0].answer);
+  g.answer(s.key, s.ask.options[0].answer, W);
   assert.equal((await b).behavior, 'allow');
 });
 
@@ -365,5 +367,77 @@ test('hostile requests never take the gateway down (review F6abe23ceec, F1871759
   await new Promise((r) => setTimeout(r, 50));
   const ok = await fetch(`http://127.0.0.1:${port}/health`);
   assert.equal(await ok.text(), 'ok', 'still serving after every hostile request');
+  server.close();
+});
+
+test('a permission carries the whole target, padding collapsed, never cut (the lens decides what it can show; review F3c7b6b7c66)', async () => {
+  const g = new Gateway({ query: fakeQuery });
+  const s = { key: 'local/l', title: 'l', lines: [], status: 'working', changedAt: 0, box: { push() {} } };
+  g.sessions.set(s.key, s);
+  const sig = new AbortController().signal;
+  const tail = '; rm -rf build';
+  const padded = g.permission(s, 'Bash', { command: `npm test${' '.repeat(500)}${tail}` }, { signal: sig });
+  await tick();
+  assert.equal(s.ask.detail, `npm test ${tail}`, 'padding collapses, the tail is in view');
+  g.answer(s.key, s.ask.options[0].answer, W);
+  assert.equal((await padded).behavior, 'allow');
+  const cmd = 'echo ' + 'x'.repeat(600) + ' && rm -rf ~';
+  const long = g.permission(s, 'Bash', { command: cmd }, { signal: sig });
+  await tick();
+  assert.equal(s.ask.detail, cmd, 'the whole command reaches the lens, its end included');
+  g.answer(s.key, { promptId: s.ask.promptId, option: 3 });
+  assert.equal((await long).behavior, 'deny');
+});
+
+test('a client that does not declare ask-whole (an older lens) sees only No and cannot send a Yes (review Fd534f966ae)', async () => {
+  const g = new Gateway({ query: fakeQuery });
+  const oldSent = [];
+  const old = g.attach((f) => oldSent.push(f));
+  const cur = g.attach(() => {}, ['ask-whole']);
+  await g.handle(
+    old,
+    { t: 'create', reqId: 'r1', text: 'bash rm -rf build' },
+    (f) => oldSent.push(f),
+    async () => '',
+  );
+  const key = oldSent.find((f) => f.t === 'ok').key;
+  await tick();
+  await g.handle(
+    old,
+    { t: 'open', screen: 'session', key },
+    (f) => oldSent.push(f),
+    async () => '',
+  );
+  const shown = oldSent.filter((f) => f.t === 'thread').at(-1).ask;
+  assert.deepEqual(
+    shown.options.map((o) => o.label),
+    ['No'],
+  );
+  const yes = { promptId: shown.promptId, option: 1 };
+  assert.equal(g.answer(key, yes, old), 'changed', 'a forged Yes from the old client is refused');
+  assert.equal(g.threadFrame(key, 12, cur).ask.options[0].label, 'Yes', 'the current lens is offered Yes');
+  assert.equal(g.answer(key, yes, cur), null);
+  await tick();
+  assert.equal(g.threadFrame(key).lines.at(-1).text, 'ran it');
+});
+
+test('the server reads caps from the URL and from the auth frame', async () => {
+  const g = new Gateway({ query: fakeQuery });
+  const seen = [];
+  const attach = g.attach.bind(g);
+  g.attach = (send, caps) => (seen.push(caps), attach(send, caps));
+  const server = serve({ gateway: g, token: 't', stt: async () => '', log: () => {} });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const a = new WebSocket(`ws://127.0.0.1:${port}/api/glasses?token=t&caps=ask-whole`);
+  await new Promise((r) => a.on('open', r));
+  const b = new WebSocket(`ws://127.0.0.1:${port}/api/glasses`);
+  await new Promise((r) => b.on('open', r));
+  b.send(JSON.stringify({ t: 'auth', token: 't', caps: ['ask-whole'] }));
+  const c = new WebSocket(`ws://127.0.0.1:${port}/api/glasses?token=t`);
+  await new Promise((r) => c.on('open', r));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(seen, [['ask-whole'], ['ask-whole'], []]);
+  for (const w of [a, b, c]) w.close();
   server.close();
 });

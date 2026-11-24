@@ -148,6 +148,21 @@ export function drawable(text: string): string {
   return out.replace(/[^\S\n]{2,}/g, ' ');
 }
 
+/** Lines an ask's detail gets on the lens (the ask screen below cuts it there with …). */
+export const ASK_DETAIL_LINES = 2;
+
+/**
+ * Does the lens show `text` WHOLE in `maxLines`: every glyph drawn (none dropped by the firmware font) and nothing
+ * cut with …? A permission the wearer cannot read whole must not be approvable from the lens (SC-11683 review: a
+ * padded command hid `; rm -rf ~` past the cut). Measured by pixel, like `block`, never by character count.
+ */
+export function shownWhole(text: string, maxLines = ASK_DETAIL_LINES, maxPx = TEXT_W): boolean {
+  const t = text.trim();
+  if (drawable(t) !== t.replace(/[^\S\n]{2,}/g, ' ')) return false;
+  const lines = wrapTextLines(drawable(t), maxPx).filter((l, i, all) => l !== '' || (i > 0 && i < all.length - 1));
+  return lines.length <= maxLines;
+}
+
 /** Cut `text` to `maxPx` (and `maxBytes`) with an ellipsis. Never splits a UTF-8 sequence. */
 
 export function fit(text: string, maxPx: number, maxBytes = 200): string {
@@ -390,7 +405,14 @@ function layoutRaw(s: State, now: number): LensFrame {
     if (ask) {
       // A label that only repeats the header's ask kind ("Question" under "question") is dropped.
       const label = ask.ask.trim().toLowerCase() === ask.kind.toLowerCase() ? '' : ask.ask;
-      const heading = [ask.asker ?? '', label, ask.more ? `(+${ask.more} more in Aristo)` : '']
+      // Cut short below, so only its refusing options are offered (items()): say why.
+      const cut = ask.kind === 'permission' && !shownWhole(ask.detail || ask.context || '');
+      const heading = [
+        ask.asker ?? '',
+        label,
+        ask.more ? `(+${ask.more} more in Aristo)` : '',
+        cut ? '· too long to read here, so only No' : '',
+      ]
         .filter(Boolean)
         .join(' ');
       const optRows = Math.min(OPTION_ROWS, list.length);

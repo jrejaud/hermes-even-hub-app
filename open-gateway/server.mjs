@@ -63,6 +63,16 @@ function bearer(req) {
   return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7) : null;
 }
 
+/** Declared capabilities: a comma-separated string (URL) or a string array (auth frame); anything else is none. */
+function capsOf(v) {
+  if (typeof v === 'string')
+    return v
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+}
+
 /** The request target as a URL, or null when it does not parse (`//[`, a bad port). */
 function urlOf(req) {
   try {
@@ -122,16 +132,16 @@ export function serve({ gateway, token, stt, tls = null, log = (m) => console.er
         sock.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         return void sock.destroy();
       }
-      wss.handleUpgrade(req, sock, head, (ws) => accept(ws, given !== null));
+      wss.handleUpgrade(req, sock, head, (ws) => accept(ws, given !== null, capsOf(url.searchParams.get('caps'))));
     } catch (e) {
       log(`open gateway: upgrade failed: ${e?.message ?? e}`);
       sock.destroy();
     }
   });
 
-  function accept(ws, authed) {
+  function accept(ws, authed, caps) {
     const send = (f) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(f));
-    let c = authed ? gateway.attach(send) : null;
+    let c = authed ? gateway.attach(send, caps) : null;
     const timer = authed ? null : setTimeout(() => ws.close(1008, 'auth timeout'), 5000);
     // An oversized or malformed frame makes `ws` emit 'error'; unhandled, it would crash every session.
     ws.on('error', () => ws.terminate());
@@ -147,7 +157,7 @@ export function serve({ gateway, token, stt, tls = null, log = (m) => console.er
       if (!c) {
         if (f.t !== 'auth' || !same(f.token, token)) return ws.close(1008, 'bad token');
         clearTimeout(timer);
-        c = gateway.attach(send);
+        c = gateway.attach(send, caps.length ? caps : capsOf(f.caps));
         return;
       }
       try {

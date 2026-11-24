@@ -4,9 +4,9 @@ import { HOME, HOME_NEEDS, ROWS, threadFrame, viewFrame } from '../src/dev/fake-
 import type { GlassesCard, GlassesServerFrame } from '../src/gateway/glasses';
 import { CORNER, cardLayout, cornerOf } from '../src/lens/card';
 import { Lens, geometry, imageSlots, slots } from '../src/lens/draw';
-import { layout } from '../src/lens/layout';
+import { layout, shownWhole } from '../src/lens/layout';
 import { rasterPixels } from '../src/lens/raster';
-import { expire, gesture, initialState, receive, type State } from '../src/lens/state';
+import { expire, gesture, initialState, items, receive, type State } from '../src/lens/state';
 
 const T = 1_700_000_000_000;
 const feed = (s: State, ...fs: GlassesServerFrame[]): State => fs.reduce((a, f) => receive(a, f, T).state, s);
@@ -151,6 +151,59 @@ describe('corner state icon', () => {
     ]);
     const sp = rasterPixels({ kind: 'spark', points: [5, 1, 9, 3] }, 288, 100)!;
     expect(sp.every(([x, y]) => x >= 0 && y >= 0 && x < 288 && y < 100)).toBe(true);
+  });
+});
+
+describe('a permission the lens cannot show whole offers only No (SC-11683 review)', () => {
+  const askOn = (detail: string): State => {
+    const s = openRow(0); // a session with a pending ask
+    const t = s.thread!;
+    const ask = {
+      ...t.ask!,
+      kind: 'permission' as const,
+      detail,
+      options: [
+        {
+          label: 'Yes',
+          title: 'Yes',
+          kind: 'yes' as const,
+          primary: true,
+          answer: { promptId: t.ask!.promptId, option: 1 },
+        },
+        {
+          label: 'No',
+          title: 'No',
+          kind: 'no' as const,
+          primary: false,
+          answer: { promptId: t.ask!.promptId, option: 3 },
+        },
+      ],
+    };
+    return feed(s, { ...t, ask });
+  };
+  it('a short command keeps Yes and No', () => {
+    expect(shownWhole('npm test')).toBe(true);
+    expect(items(askOn('npm test')).map((i) => (i.kind === 'option' ? i.index : -1))).toEqual([0, 1]);
+  });
+  it('a command cut by the lens (by pixels, wide glyphs included) offers only No, and says why', () => {
+    const wide = 'echo ' + 'W'.repeat(120) + ' && rm -rf ~'; // ~130 chars, but well past 2 lines in pixels
+    expect(shownWhole(wide)).toBe(false);
+    const s = askOn(wide);
+    expect(items(s).map((i) => (i.kind === 'option' ? i.index : -1))).toEqual([1]);
+    expect(
+      layout(s, T)
+        .body.map((b) => b.text)
+        .join('\n'),
+    ).toContain('too long to read here, so only No');
+    // a tap on the only row answers No
+    const r = gesture(s, 'tap', T);
+    expect(r.effects).toContainEqual({
+      kind: 'send',
+      frame: expect.objectContaining({ t: 'answer', answer: { promptId: s.thread!.ask!.promptId, option: 3 } }),
+    });
+  });
+  it('a glyph the firmware would drop means it is not shown whole', () => {
+    expect(shownWhole('rm -rf 🦄 ~')).toBe(false);
   });
 });
 

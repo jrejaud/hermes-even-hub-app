@@ -101,6 +101,15 @@ export function cardBody(a) {
   throw new Error(`unknown card kind ${a.kind}`);
 }
 
+/**
+ * The options a client may see and answer. A permission is approvable only from a lens that guards what it shows
+ * (`ask-whole`: it offers only No for a detail it cannot show whole); any other client, or none, gets the refusing
+ * options only, so an older lens build can never approve a command it showed cut short (REVIEW.md).
+ */
+export function offered(ask, c) {
+  return ask.kind === 'permission' && !c?.whole ? ask.options.filter((o) => o.kind === 'no') : ask.options;
+}
+
 /** A queue that is also the session's streaming prompt: `push` a message, the SDK pulls it. */
 function inbox() {
   const items = [];
@@ -204,7 +213,8 @@ export class Gateway {
     };
   }
 
-  threadFrame(key, limit = THREAD_LIMIT) {
+  /** `c` = the client it is for: one without the `ask-whole` capability gets a permission's refusing options only. */
+  threadFrame(key, limit = THREAD_LIMIT, c = null) {
     const s = this.sessions.get(key);
     if (!s) return null;
     const a = s.ask;
@@ -217,7 +227,7 @@ export class Gateway {
           asker: null,
           detail: a.detail,
           context: a.context,
-          options: a.options,
+          options: offered(a, c),
           freeText: a.freeText,
           more: a.more,
           createdAt: new Date(a.at).toISOString(),
@@ -226,16 +236,17 @@ export class Gateway {
     return { t: 'thread', row: this.row(s), ask, lines: s.lines.slice(-limit) };
   }
 
-  frameFor(open) {
+  frameFor(open, c = null) {
     if (!open || open.screen === 'home') return this.homeFrame();
     if (open.screen === 'view') return this.viewFrame(open.limit);
-    return this.threadFrame(open.key, open.limit);
+    return this.threadFrame(open.key, open.limit, c);
   }
 
   // ------------------------------------------------------------------------------------------ clients
 
-  attach(send) {
-    const c = { send, open: null };
+  /** `caps` = what the client declared (`caps=` on its URL or in its auth frame). */
+  attach(send, caps = []) {
+    const c = { send, open: null, whole: caps.includes('ask-whole') };
     this.clients.add(c);
     send({ t: 'hello', protocol: PROTOCOL, host: HOST, hosts: [{ id: HOST, up: true }] });
     send(this.homeFrame());
@@ -249,7 +260,7 @@ export class Gateway {
   /** Re-send every client's open screen (cheap: one session list, one thread). */
   changed() {
     for (const c of this.clients) {
-      const f = this.frameFor(c.open);
+      const f = this.frameFor(c.open, c);
       if (f) c.send(f);
     }
   }
@@ -371,10 +382,13 @@ export class Gateway {
       };
     } else {
       const k = TOOL_TARGET[name];
+      // The whole target, whitespace runs collapsed so padding cannot push the end out of sight. Never cut here: the
+      // lens measures it in pixels and offers only No for what it cannot show whole (src/lens/state.ts, REVIEW.md).
+      const full = (k && typeof input[k] === 'string' ? input[k] : JSON.stringify(input)).replace(/\s+/g, ' ').trim();
       ask = {
         kind: 'permission',
         ask: ASK_TITLE[name] ?? name.split('__').pop(),
-        detail: (k && typeof input[k] === 'string' ? input[k] : JSON.stringify(input)).slice(0, 400),
+        detail: full,
         options: [
           { label: 'Yes', title: 'Yes', kind: 'yes', primary: true, answer: { promptId, option: 1 } },
           ...(o?.suggestions?.length
@@ -419,13 +433,13 @@ export class Gateway {
   }
 
   /** Resolve an ask. Returns a refusal reason, or null when it landed. */
-  answer(key, a) {
+  answer(key, a, c = null) {
     const s = this.sessions.get(key);
     if (!s?.ask || s.ask.promptId !== a.promptId) return 'gone';
     const ask = s.ask;
     if (
       a.text === undefined &&
-      !ask.options.some(
+      !offered(ask, c).some(
         (op) =>
           JSON.stringify(op.answer) ===
           JSON.stringify({
@@ -490,7 +504,7 @@ export class Gateway {
         const open = { ...f };
         delete open.t;
         c.open = open;
-        const fr = this.frameFor(open);
+        const fr = this.frameFor(open, c);
         return fr ? reply(fr) : reply(this.homeFrame());
       }
       case 'create': {
@@ -509,7 +523,7 @@ export class Gateway {
         return ok();
       }
       case 'answer': {
-        const why = this.answer(f.key, 'text' in f ? { promptId: f.promptId, text: f.text } : f.answer);
+        const why = this.answer(f.key, 'text' in f ? { promptId: f.promptId, text: f.text } : f.answer, c);
         return why ? refuse(why, why === 'gone' ? 'Already answered.' : 'Not an option of this prompt.') : ok();
       }
       case 'interrupt': {
