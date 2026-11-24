@@ -18,6 +18,7 @@ import type { GlassesMark, GlassesRow } from '../gateway/glasses';
 import { wrapTextLines } from './wrap';
 import { CONVO_LINES, conversationLines, convoWindow } from './conversation';
 import type { OsMenuItem } from './os-menu';
+import { HEADER_W, cardLayout, cornerOf, type Corner, type FreeBox, type ImageBox } from './card';
 import {
   anchorFor,
   menuActions,
@@ -25,6 +26,7 @@ import {
   cursorIndex,
   items,
   liveAsk,
+  micLive,
   sendTarget,
   threadFor,
   top,
@@ -81,6 +83,12 @@ export interface LensFrame {
   body: Box[];
   /** The glasses' own tap-then-hold menu items for this screen (os-menu.ts). */
   menu?: OsMenuItem[];
+  /** The corner state icon (SC-11683). */
+  corner?: Corner;
+  /** Free-placed boxes that replace `body` (a show-me card). */
+  free?: FreeBox[];
+  /** Image boxes (a card's big value, its sparkline). */
+  images?: ImageBox[];
 }
 
 // ------------------------------------------------------------------------------------------- geometry
@@ -138,6 +146,21 @@ export function drawable(text: string): string {
     else if (getAdvW(cp) > 0) out += ch;
   }
   return out.replace(/[^\S\n]{2,}/g, ' ');
+}
+
+/** Lines an ask's detail gets on the lens (the ask screen below cuts it there with …). */
+export const ASK_DETAIL_LINES = 2;
+
+/**
+ * Does the lens show `text` WHOLE in `maxLines`: every glyph drawn (none dropped by the firmware font) and nothing
+ * cut with …? A permission the wearer cannot read whole must not be approvable from the lens (SC-11683 review: a
+ * padded command hid `; rm -rf ~` past the cut). Measured by pixel, like `block`, never by character count.
+ */
+export function shownWhole(text: string, maxLines = ASK_DETAIL_LINES, maxPx = TEXT_W): boolean {
+  const t = text.trim();
+  if (drawable(t) !== t.replace(/[^\S\n]{2,}/g, ' ')) return false;
+  const lines = wrapTextLines(drawable(t), maxPx).filter((l, i, all) => l !== '' || (i > 0 && i < all.length - 1));
+  return lines.length <= maxLines;
 }
 
 /** Cut `text` to `maxPx` (and `maxBytes`) with an ellipsis. Never splits a UTF-8 sequence. */
@@ -286,12 +309,14 @@ function message(left: string, right: string, text: string, rightBright: Bright 
 }
 
 export function layout(s: State, now: number = Date.now()): LensFrame {
-  const f = layoutRaw(s, now);
+  // A banner (someone needs you) wins over a card, for drawing as for gestures (state.ts gesture order).
+  const f = s.card && !s.banner && !micLive(top(s)) ? cardFrame(s) : layoutRaw(s, now);
   return {
     ...f,
     menu: menuActions(s),
+    corner: cornerOf(s),
     // A clear gutter between where-you-are and the live status (the critic saw them nearly touch).
-    left: fit(f.left, SCREEN.w - rightWidth(f.right) - 2 * PAD - 40),
+    left: fit(f.left, HEADER_W - rightWidth(f.right) - 2 * PAD - 40),
     right: fit(f.right, 290),
     body: f.body.slice(0, BODY_BOXES).map((b) => ({ ...b, text: clampBytes(b.text) })),
   };
@@ -380,7 +405,14 @@ function layoutRaw(s: State, now: number): LensFrame {
     if (ask) {
       // A label that only repeats the header's ask kind ("Question" under "question") is dropped.
       const label = ask.ask.trim().toLowerCase() === ask.kind.toLowerCase() ? '' : ask.ask;
-      const heading = [ask.asker ?? '', label, ask.more ? `(+${ask.more} more in Aristo)` : '']
+      // Cut short below, so only its refusing options are offered (items()): say why.
+      const cut = ask.kind === 'permission' && !shownWhole(ask.detail || ask.context || '');
+      const heading = [
+        ask.asker ?? '',
+        label,
+        ask.more ? `(+${ask.more} more in Aristo)` : '',
+        cut ? '· too long to read here, so only No' : '',
+      ]
         .filter(Boolean)
         .join(' ');
       const optRows = Math.min(OPTION_ROWS, list.length);
@@ -506,7 +538,7 @@ function dictationFrame(s: State, d: Dictation, status: string | null, now: numb
     })),
   ];
   const secs = Math.max(0, Math.floor((now - d.startedAt) / 1000));
-  const right = status && s.notice ? status : d.phase === 'listening' ? `● ${secs}s` : PHASE_RIGHT[d.phase];
+  const right = status && s.notice ? status : d.phase === 'listening' ? `${secs}s` : PHASE_RIGHT[d.phase];
   return {
     left: d.title,
     right,
@@ -521,6 +553,22 @@ function dictLabel(it: Item): string {
   if (it.kind === 'redo') return 'Say it again';
   if (it.kind === 'cancel') return 'Cancel';
   return '';
+}
+
+/** A show-me card over the open screen: the header keeps where you are; "pinned" once tapped. */
+function cardFrame(s: State): LensFrame {
+  const sc = top(s);
+  const left = sc.kind === 'home' || sc.kind === 'quiet' ? 'Aristo' : 'title' in sc ? sc.title : 'Aristo';
+  const { free, images } = cardLayout(s.card!);
+  return {
+    left,
+    right: s.card!.pinned ? 'pinned' : '',
+    leftBright: B.normal,
+    rightBright: B.dim,
+    body: [],
+    free,
+    images,
+  };
 }
 
 function bannerFrame(s: State): LensFrame {

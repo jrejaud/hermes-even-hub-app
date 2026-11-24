@@ -1,0 +1,20 @@
+{
+  "name": "aristo-lens-open-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run Claude Code from Even Realities G2 glasses: the gateway the Aristo Lens app talks to",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.296",
+    "ws": "^8.18.0",
+    "zod": "^4.0.0"
+  }
+}

@@ -9,10 +9,11 @@ import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
 import { GALLERY_NOW, LENS_FRAMES } from './lens-gallery';
 import { runLensGate } from './lens-gate-client';
 import { Lens } from '../lens/draw';
+import { canvasRasterize } from '../lens/raster';
 import { toInput } from '../lens/input';
 import { osMenuPick } from '../lens/os-menu';
 import { layout } from '../lens/layout';
-import { gesture, initialState, liveAsk, menuPick, top, type State } from '../lens/state';
+import { gesture, initialState, liveAsk, menuPick, micLive, top, type State } from '../lens/state';
 
 /** The gallery's fixed clock, so banners and notices never expire mid-run. */
 const T = 1_700_000_000_000;
@@ -20,6 +21,7 @@ const T = 1_700_000_000_000;
 export function screenOf(s: State): string {
   if (s.banner) return `banner:${s.banner.key}`;
   const sc = top(s);
+  if (s.card && !s.banner && !micLive(sc)) return `card:${s.card.card.id}${s.card.pinned ? ':pinned' : ''}`;
   if (sc.kind === 'home') return `home:${s.conn}`;
   if (sc.kind === 'quiet') return 'quiet';
   if (sc.kind === 'view') return `view:${sc.viewId}`;
@@ -30,7 +32,7 @@ export function screenOf(s: State): string {
 
 export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
   let lens: Lens | null = null;
-  const lensFor = (b: EvenAppBridge): Lens => (lens ??= new Lens(b));
+  const lensFor = (b: EvenAppBridge): Lens => (lens ??= new Lens(b, canvasRasterize));
   return runLensGate<State>({
     bridge,
     states: LENS_FRAMES.map((f) => {

@@ -15,6 +15,7 @@
 import { GLASSES_THREAD_LIMIT, GLASSES_VIEW_LIMIT } from '../gateway/glasses';
 import type {
   GlassesAsk,
+  GlassesCard,
   GlassesHomeView,
   GlassesKey,
   GlassesOpen,
@@ -23,6 +24,8 @@ import type {
 } from '../gateway/glasses';
 import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFrame } from '../gateway/glasses';
 import { CONVO_LINES, conversationLines, glide, messageLines, scrollAnchor, topLine } from './conversation';
+// layout.ts imports this module too; shownWhole is only called inside functions, so the cycle is safe at load.
+import { shownWhole } from './layout';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
@@ -74,6 +77,16 @@ export interface Banner extends BannerFrame {
   at: number;
 }
 
+export interface ShownCard {
+  card: GlassesCard;
+  /** ms epoch it arrived (or was replaced in place). */
+  at: number;
+  /** Tapped: stays until dismissed. */
+  pinned: boolean;
+  /** First list/table row on screen. */
+  offset: number;
+}
+
 export const BANNER_MS = 10_000;
 /** Ask for the next page this many rows before the end of what is loaded. */
 export const PAGE_AHEAD = 3;
@@ -98,6 +111,8 @@ export interface State {
   cursor: Record<string, string>;
   /** Index the cursor had, used only when its item vanished (answered, moved out of the view). */
   cursorIndex: Record<string, number>;
+  /** A show-me card an agent pushed (SC-11683): drawn over the open screen until it expires or is dismissed. */
+  card: ShownCard | null;
   banner: Banner | null;
   bannerCursor: 0 | 1;
   /** A short transient line for the header ("already answered"), with when it expires. */
@@ -138,6 +153,7 @@ export function initialState(conn: Conn = 'connecting'): State {
     thread: null,
     cursor: {},
     cursorIndex: {},
+    card: null,
     banner: null,
     bannerCursor: 0,
     notice: null,
@@ -227,7 +243,13 @@ export function items(s: State, sc: Screen = top(s)): Item[] {
   if (sc.kind === 'session') {
     // With an ask the options are the items; otherwise the screen is a conversation you scroll (no cursor).
     const ask = liveAsk(s, sc.key);
-    return ask ? ask.options.map((_, index) => ({ id: `opt:${index}`, kind: 'option', index })) : [];
+    if (!ask) return [];
+    // A permission whose detail the lens cannot show whole offers only its refusing options: nobody approves a
+    // command they could not read (SC-11683 review). Indexes stay the gateway's, so a tap echoes the right payload.
+    const whole = ask.kind !== 'permission' || shownWhole(ask.detail || ask.context || '');
+    return ask.options.flatMap((o, index) =>
+      whole || o.kind === 'no' ? [{ id: `opt:${index}`, kind: 'option' as const, index }] : [],
+    );
   }
   if (sc.kind === 'menu') {
     const t = threadFor(s, sc.key);
@@ -363,6 +385,22 @@ export function receive(s: State, f: ServerFrame, now: number): { state: State; 
         return { state: s, effects: [] };
       if (s.answered.includes(f.promptId)) return { state: s, effects: [] };
       return { state: { ...s, banner: { ...f, at: now }, bannerCursor: 0 }, effects: [] };
+    }
+    case 'card': {
+      // Same id = replaced in place: keep the pin and the scroll, restart the clock.
+      const same = s.card?.card.id === f.card.id ? s.card : null;
+      return {
+        state: {
+          ...s,
+          card: {
+            card: f.card,
+            at: now,
+            pinned: same?.pinned ?? false,
+            offset: same ? Math.min(same.offset, cardRows(f.card) - 1) : 0,
+          },
+        },
+        effects: [],
+      };
     }
     case 'partial': {
       // Live words for the stream that is on screen; anything else is stale.
@@ -575,6 +613,8 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
 
   // While the mic is open, gestures belong to the recording (a tap ends it), not to a banner that arrived meanwhile.
   if (s.banner && !micLive(top(s))) return bannerGesture(s, g);
+  // A hold still talks to the screen under the card, so the wearer can answer what the card shows.
+  if (s.card && !micLive(top(s)) && g !== 'hold' && g !== 'release') return cardGesture(s, g);
 
   const sc = top(s);
 
@@ -864,7 +904,7 @@ function redo(s: State, d: Dictation, now: number): GestureResult {
 }
 
 /** A dictation whose mic is open: audio is (or may still be) streaming to the gateway. */
-function micLive(sc: Screen): boolean {
+export function micLive(sc: Screen): boolean {
   return sc.kind === 'dictate' && (sc.phase === 'listening' || sc.phase === 'finishing');
 }
 
@@ -887,11 +927,30 @@ function bannerGesture(s: State, g: Gesture): GestureResult {
   return { state: next, effects: [...stop, ...navEffects(next)], pending: {} };
 }
 
+/** Rows a card can scroll through (list or table rows; 1 for a stat). */
+export function cardRows(c: GlassesCard): number {
+  return c.body.kind === 'stat' ? 1 : Math.max(1, c.body.rows.length);
+}
+
+/** On a card: tap pins (or unpins) it, double tap dismisses it, a swipe scrolls its rows. Nothing is sent. */
+function cardGesture(s: State, g: Gesture): GestureResult {
+  const c = s.card!;
+  if (g === 'double') return none({ ...s, card: null });
+  if (g === 'tap') return none({ ...s, card: { ...c, pinned: !c.pinned } });
+  if (g === 'up' || g === 'down') {
+    const offset = Math.max(0, Math.min(cardRows(c.card) - 1, c.offset + (g === 'down' ? 1 : -1)));
+    return none({ ...s, card: { ...c, offset } });
+  }
+  return none(s);
+}
+
 /** Drop a banner or notice whose time is up. Pure in `now`; app.ts calls it on a timer too. */
 export function expire(s: State, now: number): State {
   let out = s;
   if (out.banner && top(out).kind !== 'quiet' && now - out.banner.at >= BANNER_MS) out = { ...out, banner: null };
   if (out.notice && now >= out.notice.until) out = { ...out, notice: null };
+  const c = out.card;
+  if (c && !c.pinned && c.card.ttlMs !== null && now - c.at >= c.card.ttlMs) out = { ...out, card: null };
   return out;
 }
 

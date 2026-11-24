@@ -30,8 +30,10 @@ export const GLASSES_PROTOCOL = 1;
 export const GLASSES_PATH = "/api/glasses";
 /** Rows a `view` frame carries when the client does not say (the lens shows 6 to 8). */
 export const GLASSES_VIEW_LIMIT = 20;
-/** Audio one `listen` takes before it ends by itself (as if `listen.end` had come). */
-export const GLASSES_LISTEN_MAX_MS = 60_000;
+/** Audio one `listen` takes before it ends by itself (as if `listen.end` had come): 20 minutes (SC-10893; was 60 s).
+ *  Soniox caps a real-time session at 300 minutes, so one stream covers it. Nothing buffers the whole take: audio is
+ *  relayed as it arrives (the phone and the page keep only the last 20 s for a retry); the raw size would be ~38 MB. */
+export const GLASSES_LISTEN_MAX_MS = 20 * 60_000;
 /** `partial` frames are sent at most this often. */
 export const GLASSES_PARTIAL_MS = 200;
 /** Messages (yours and the agent's; tool calls do not count) a `thread` frame carries when the client does not say. */
@@ -157,7 +159,34 @@ export interface GlassesLine {
   at: string;
 }
 
+/** A show-me card's content (SC-11683): what speech can't carry (numbers, a list, a table). Fixed templates; the lens
+ *  lays them out in its own monochrome style and never computes anything from them. */
+export type GlassesCardBody =
+  /** One big value, optional change line and a sparkline (oldest → newest; ≥ 2 points). */
+  | { kind: "stat"; value: string; delta?: string; spark?: number[]; sparkLabel?: string }
+  /** Rows of one line each; the lens cuts a long row with … and scrolls past what fits. */
+  | { kind: "list"; rows: string[] }
+  /** A header row and data rows, ≤ 4 columns; `align` per column ("r" for numbers), default left. */
+  | { kind: "table"; head: string[]; rows: string[][]; align?: ("l" | "r")[] };
+
+/** A show-me card an agent pushed (SC-11683). It covers the open screen until `ttlMs` passes (null = until the wearer
+ *  dismisses it); a tap pins it (no expiry), a double tap dismisses it. Pin and dismiss are local to the lens. */
+export interface GlassesCard {
+  /** Unique per card; a card with an id already shown replaces it in place. */
+  id: string;
+  /** The session that pushed it, or null (a card from outside any session). */
+  key: GlassesKey | null;
+  title: string;
+  ttlMs: number | null;
+  body: GlassesCardBody;
+}
+
+/** How long a card stays when the agent does not say (SC-11683). */
+export const GLASSES_CARD_TTL_MS = 20_000;
+
 export type GlassesServerFrame =
+  /** A show-me card (SC-11683): sent to every connected lens whatever screen is open. */
+  | { t: "card"; card: GlassesCard }
   /** First frame; sent again whenever a host comes up or goes down. */
   | { t: "hello"; protocol: number; host: string; hosts: { id: string; up: boolean }[] }
   /** Home: exactly the views starred in Aristo, in the sidebar's order (SC-10526); `needs` = the Inbox count, whether
@@ -207,9 +236,9 @@ export type GlassesClientFrame =
    *  `["en", "ja"]`). No reply on success: `partial` frames follow, and `listen.end` gets the `ok`. Refused (same
    *  reqId) when the recogniser cannot start or fails mid-stream. One listen per socket: a new `listen` cancels the
    *  open one, which is answered `refused` `gone` ("replaced"); a socket that closes cancels its listen. */
-  | { t: "listen"; reqId: string; lang?: string[] }
+  | { t: "listen"; reqId: string; lang?: string[]; /** Voice mode (SC-10893): the session and host this take is for, so a take cut off by a restart or a dropped socket is transcribed and delivered there instead of thrown away. */ sessionId?: string; hostId?: string; /** SC-11155: the phone owns this take and keeps its audio. A close or a stopping daemon does not deliver it at once: the phone reconnects and replays the whole take as a new listen with `resumeOf` = this reqId. */ resume?: boolean; resumeOf?: string }
   /** Audio for the open listen with that reqId: base64 16 kHz mono signed 16-bit little-endian PCM (~100-200 ms a
-   *  frame). No reply. After 60 s of audio the listen ends by itself, exactly as if `listen.end` had come: the
+   *  frame). No reply. After GLASSES_LISTEN_MAX_MS (20 min) of audio the listen ends by itself, exactly as if `listen.end` had come: the
    *  `ok` with `text` is sent then, and a later `listen.end` for it gets the same `ok` again. */
   | { t: "audio"; reqId: string; pcm: string }
   /** The wearer let go: flush, wait for the final words, reply `ok` with `text` = the whole final transcript,

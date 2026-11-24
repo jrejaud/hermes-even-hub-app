@@ -1,7 +1,7 @@
 import { getAdvW, getTextWidth } from '@evenrealities/pretext';
 import { describe, expect, it } from 'vitest';
 import { GALLERY_NOW, LENS_FRAMES } from '../src/dev/lens-gallery';
-import { slots } from '../src/lens/draw';
+import { imageSlots, slots } from '../src/lens/draw';
 import {
   BODY_BOXES,
   BOX_BYTES,
@@ -46,10 +46,14 @@ describe('every gallery frame fits the lens', () => {
         for (const l of lines)
           expect(getTextWidth(l), `${s.name}: "${l}" wider than its box`).toBeLessThanOrEqual(s.w - 4);
       }
-      // No two containers overlap.
-      for (const a of all)
-        for (const b of all) {
-          if (a === b) continue;
+      // No two containers overlap, images included. The one exception (SC-11683): a card's frame, a blank box that only
+      // draws a border, encloses the boxes inside it (the Messenger banner pattern).
+      const frameBox = (s: { text?: string; border?: unknown }) => !!s.border && !(s.text ?? '').trim();
+      const every = [...all, ...imageSlots(frame)];
+      expect(imageSlots(frame).length).toBeLessThanOrEqual(4);
+      for (const a of every)
+        for (const b of every) {
+          if (a === b || frameBox(a) || frameBox(b)) continue;
           const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
           expect(overlap, `${a.name} overlaps ${b.name}`).toBe(false);
         }

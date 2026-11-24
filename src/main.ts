@@ -7,6 +7,7 @@ import { lensGateUrl } from './dev/lens-gate-client';
 import { runGateGallery } from './dev/lens-gate-app';
 import { startApp } from './lens/app';
 import { Lens } from './lens/draw';
+import { canvasRasterize } from './lens/raster';
 import { layout } from './lens/layout';
 
 /**
@@ -16,7 +17,7 @@ import { layout } from './lens/layout';
  *   otherwise             the real app; the gateway URL and token come from the phone page
  */
 async function runGallery(bridge: EvenAppBridge): Promise<void> {
-  const lens = new Lens(bridge);
+  const lens = new Lens(bridge, canvasRasterize);
   let i = 0;
   let busy = Promise.resolve();
   const draw = (): void => {

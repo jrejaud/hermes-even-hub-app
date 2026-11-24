@@ -70,9 +70,11 @@ describe('input', () => {
 describe('gateway url', () => {
   it('adds the glasses path and the token; http(s) becomes ws(s)', () => {
     expect(gatewayUrl({ url: 'https://chiba.example:8445', token: 't k' })).toBe(
-      'wss://chiba.example:8445/api/glasses?token=t+k',
+      'wss://chiba.example:8445/api/glasses?token=t+k&caps=ask-whole',
     );
-    expect(gatewayUrl({ url: 'ws://100.1.2.3:9/custom', token: 'x' })).toBe('ws://100.1.2.3:9/custom?token=x');
+    expect(gatewayUrl({ url: 'ws://100.1.2.3:9/custom', token: 'x' })).toBe(
+      'ws://100.1.2.3:9/custom?token=x&caps=ask-whole',
+    );
   });
 });
 
