@@ -538,7 +538,12 @@ function dictationFrame(s: State, d: Dictation, status: string | null, now: numb
     })),
   ];
   const secs = Math.max(0, Math.floor((now - d.startedAt) / 1000));
-  const right = status && s.notice ? status : d.phase === 'listening' ? `${secs}s` : PHASE_RIGHT[d.phase];
+  const right =
+    status && s.notice
+      ? status
+      : d.phase === 'listening'
+        ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+        : PHASE_RIGHT[d.phase];
   return {
     left: d.title,
     right,
