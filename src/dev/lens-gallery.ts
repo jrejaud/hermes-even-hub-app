@@ -17,7 +17,7 @@ export interface GalleryFrame {
 }
 
 const T = 1_700_000_000_000;
-/** The clock the gallery is drawn at: 4 s into a hold, so the listening timer reads a stable "● 4s". */
+/** The clock the gallery is drawn at: 4 s into a hold, so the listening timer reads a stable "0:04". */
 export const GALLERY_NOW = T + 4_000;
 
 function feed(s: State, ...frames: GlassesServerFrame[]): State {
@@ -245,7 +245,8 @@ export const LENS_FRAMES: GalleryFrame[] = [
   },
   {
     name: '17-dictate-listening',
-    looking_for: "hold on the working session: header right '● 4s' bright, body 'Speak now.', no gesture hint",
+    looking_for:
+      "hold on the working session: header right '0:04' bright next to the corner dot, body 'Speak now.', no gesture hint",
     state: press(openRow(3), 'hold'),
   },
   {
@@ -338,7 +339,7 @@ export const LENS_FRAMES: GalleryFrame[] = [
   {
     name: '30-new-session-listening',
     looking_for:
-      "hold on Home: 'New session' header, '● 4s', 'First message:' label, live words with the undecided tail on a dim line",
+      "hold on Home: 'New session' header, '0:04' and the corner dot, 'First message:' label, live words with the undecided tail on a dim line",
     state: hearing(online(), 'look into why the nightly billing job', 'double counts'),
   },
   {

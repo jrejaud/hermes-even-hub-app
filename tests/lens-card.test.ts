@@ -221,3 +221,12 @@ describe('review fixes (SC-11683)', () => {
     expect(after.card).not.toBeNull();
   });
 });
+
+describe('talk timer (Jordan, 2026-11-25: show how long I have been talking)', () => {
+  it('reads m:ss next to the corner dot', () => {
+    const r = gesture(openRow(3), 'hold', T);
+    expect(layout(r.state, T + 4_000).right).toBe('0:04');
+    expect(layout(r.state, T + 61_000).right).toBe('1:01');
+    expect(layout(r.state, T + 4_000).corner).toBe('you');
+  });
+});
