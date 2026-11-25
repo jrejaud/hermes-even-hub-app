@@ -1,0 +1,51 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "APPROVE",
+  "head": "f67d461c9899479df97e5e755855a8f0f4f1502c",
+  "tree": "7bdd8de0ee946810c5e3878f1824ee252105d2ab",
+  "base": "c6f7c866bd70de36aa941471df91314833e7672e",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 0,
+    "outputSha256": "106ff079f0b3c75866fb08af83b3f5641dd727190eb534e195ae1a61e4430b8e"
+  },
+  "review": {
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· round 1 (full): 1 new candidate(s), 1 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 1,
+      "mode": "full",
+      "reviewMd": "../../.git/worktrees/sc-11683-lens-icons/harness/REVIEW.base.md",
+      "findings": [
+        {
+          "id": "F29fdd307a2",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/card.ts",
+          "line": 43,
+          "summary": "This change redraws the 'ask' corner bitmap from 13x13 to 9x11, but no test checks any ICONS bitmap. A ragged row, or an icon too big for the 30x32 corner at 2x, would pass the suite and draw clipped or off-centre, because rasterPixels takes the width from rows[0] only.",
+          "class": "untested-icon-bitmap-shape",
+          "verified": false,
+          "outcome": null
+        }
+      ]
+    },
+    "reused": {
+      "from": "trunk-push review --staged",
+      "tree": "7bdd8de0ee946810c5e3878f1824ee252105d2ab",
+      "at": "2026-11-25T14:14:38.862Z"
+    }
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-25T14:18:26.942Z"
+}
