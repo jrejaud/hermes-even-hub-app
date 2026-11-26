@@ -1,0 +1,23 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "REQUEST_CHANGES",
+  "head": "8db383c330700161cfb95cafa33c78df59433369",
+  "tree": "f344f6708e6f6ec6a06ee33d07c2f730a4da2fb3",
+  "base": "f67d461c9899479df97e5e755855a8f0f4f1502c",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 127,
+    "outputSha256": "6ede3c540590a9ecc93668a5f3f022c44cf8cc166c2db7910053cea6cd2a5f89"
+  },
+  "review": {
+    "by": null,
+    "findings": []
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-26T06:59:49.142Z"
+}
