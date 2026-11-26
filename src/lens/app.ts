@@ -33,6 +33,7 @@ import {
   type Saved,
   type State,
 } from './state';
+import { voiceTicking } from './voice';
 
 /** ~200 ms of 16 kHz mono s16le per `audio` frame. */
 const CHUNK_BYTES = (16_000 * 2) / 5;
@@ -276,6 +277,8 @@ export async function startApp(d: AppDeps): Promise<void> {
       } else show(state);
       return;
     }
+    // Voice mode's timers (SC-11683): your talk time and the reply's elapsed / total count up.
+    if (voiceTicking(state)) show(state);
     if (!state.banner && !state.notice && !state.card) return;
     const next = expire(state, t);
     if (next !== state) set(next);

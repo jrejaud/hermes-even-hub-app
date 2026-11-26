@@ -184,9 +184,33 @@ export interface GlassesCard {
 /** How long a card stays when the agent does not say (SC-11683). */
 export const GLASSES_CARD_TTL_MS = 20_000;
 
+/** Voice mode's state, as the phone's voice mode reports it (SC-11683: "phone drives, lens mirrors"). `off` = voice mode
+ *  ended; the rest are the voice bar's own states (voice-mode.ts): `listening` = Jordan is talking, `review` = his words
+ *  wait for Send, `working` = the agent is thinking, `speaking` = a reply is playing, `offline` = speech to text was lost. */
+export type GlassesVoiceState = "off" | "idle" | "listening" | "review" | "working" | "speaking" | "offline";
+
+/** A spoken reply playing now: when it started (epoch ms, the phone's clock) and how long it is. */
+export interface GlassesVoicePlay {
+  startedAt: number;
+  totalMs: number;
+}
+
+/** What voice mode is doing in one session, for the lens's minimal voice screens (SC-11683). */
+export interface GlassesVoice {
+  key: GlassesKey;
+  title: string;
+  state: GlassesVoiceState;
+  /** When this state began (epoch ms, the phone's clock): the lens counts Jordan's talk time from it. */
+  since: number;
+  /** The reply playing, while `speaking`; null otherwise. */
+  play: GlassesVoicePlay | null;
+}
+
 export type GlassesServerFrame =
   /** A show-me card (SC-11683): sent to every connected lens whatever screen is open. */
   | { t: "card"; card: GlassesCard }
+  /** Voice mode's state changed (SC-11683): sent to every lens on connect and on each change; `off` when it ended. */
+  | { t: "voice"; voice: GlassesVoice }
   /** First frame; sent again whenever a host comes up or goes down. */
   | { t: "hello"; protocol: number; host: string; hosts: { id: string; up: boolean }[] }
   /** Home: exactly the views starred in Aristo, in the sidebar's order (SC-10526); `needs` = the Inbox count, whether

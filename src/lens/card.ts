@@ -11,6 +11,7 @@
 import { getTextWidth } from '@evenrealities/pretext';
 import type { GlassesCard } from '../gateway/glasses';
 import { liveAsk, micLive, threadFor, top, type ShownCard, type State } from './state';
+import { voiceCorner } from './voice';
 
 export type Corner = 'none' | 'you' | 'thinking' | 'agent' | 'ask' | 'ring';
 
@@ -81,8 +82,11 @@ export function cornerOf(s: State): Corner {
   if (micLive(sc)) return 'you';
   if (s.banner) return 'ask';
   if (sc.kind === 'dictate' && sc.phase === 'sending') return 'thinking';
+  if ((sc.kind === 'session' || sc.kind === 'menu') && liveAsk(s, sc.key)) return 'ask';
+  // Voice mode on the phone (SC-11683): you talking, the agent thinking or talking.
+  const vc = voiceCorner(s);
+  if (vc) return vc;
   if (sc.kind === 'session' || sc.kind === 'menu') {
-    if (liveAsk(s, sc.key)) return 'ask';
     if (threadFor(s, sc.key)?.row.mark === 'working') return 'thinking';
   }
   return 'none';

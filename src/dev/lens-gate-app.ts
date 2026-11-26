@@ -14,6 +14,7 @@ import { toInput } from '../lens/input';
 import { osMenuPick } from '../lens/os-menu';
 import { layout } from '../lens/layout';
 import { gesture, initialState, liveAsk, menuPick, micLive, top, type State } from '../lens/state';
+import { voiceShown } from '../lens/voice';
 
 /** The gallery's fixed clock, so banners and notices never expire mid-run. */
 const T = 1_700_000_000_000;
@@ -21,6 +22,7 @@ const T = 1_700_000_000_000;
 export function screenOf(s: State): string {
   if (s.banner) return `banner:${s.banner.key}`;
   const sc = top(s);
+  if (voiceShown(s)) return `voice:${s.voice?.v.state}`; // SC-11683: the minimal voice screens
   if (s.card && !s.banner && !micLive(sc)) return `card:${s.card.card.id}${s.card.pinned ? ':pinned' : ''}`;
   if (sc.kind === 'home') return `home:${s.conn}`;
   if (sc.kind === 'quiet') return 'quiet';
@@ -42,7 +44,8 @@ export function runGateGallery(bridge: EvenAppBridge): Promise<boolean> {
         lookingFor: f.looking_for,
         root: !f.state.banner && sc.kind === 'home',
         approval: !!f.state.banner || (sc.kind === 'session' && !!liveAsk(f.state, sc.key)),
-        blank: !f.state.banner && sc.kind === 'quiet',
+        // Quiet mode and voice mode's idle (SC-11683: "idle should show nothing") are meant to be fully dark.
+        blank: !f.state.banner && (sc.kind === 'quiet' || (voiceShown(f.state) && f.state.voice?.v.state === 'idle')),
         menu: (layout(f.state, GALLERY_NOW).menu ?? []).length > 0,
         menuItems: layout(f.state, GALLERY_NOW).menu ?? [],
         state: f.state,
