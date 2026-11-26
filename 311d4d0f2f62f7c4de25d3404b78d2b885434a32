@@ -1,0 +1,79 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "APPROVE",
+  "head": "311d4d0f2f62f7c4de25d3404b78d2b885434a32",
+  "tree": "d6f904db1801e58c155dc0e5fadd3a96ab6a742f",
+  "base": "35910e1abeb77f7eaa548c2b7cc9e350f8ca2999",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 0,
+    "outputSha256": "77c353145aa055e3759eb5eff8a1d3ab20f6980595a086bf9fc08a696a3e89b4"
+  },
+  "review": {
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· [advisory low] src/lens/state.ts:274 The home frame's new `needs` field is copied into state without a fallback, so a gateway that leaves it out (one deployed before SC-10526) sets `s.needs` to undefined; `toSaved` then saves no `inboxNeeds`, `parseSaved` rejects that, and the wearer's saved place is thrown away on every launch. (F003ac47044)",
+      "· [advisory low] src/lens/state.ts:351 The `home` frame now requires `needs`, but GLASSES_PROTOCOL was not bumped and the lens never checks the value. If the gateway does not send `needs` (one that predates SC-10526, or a mismatched deploy), `s.needs` becomes undefined. The header then says 'all clear', landing never fires, and the saved location fails to load on every restart. (Fd7fb5b8014)",
+      "· round 1 (full): 3 new candidate(s), 1 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 1,
+      "mode": "full",
+      "reviewMd": null,
+      "findings": [
+        {
+          "id": "F003ac47044",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "line": 274,
+          "summary": "The home frame's new `needs` field is copied into state without a fallback, so a gateway that leaves it out (one deployed before SC-10526) sets `s.needs` to undefined; `toSaved` then saves no `inboxNeeds`, `parseSaved` rejects that, and the wearer's saved place is thrown away on every launch.",
+          "class": "unguarded-new-wire-field",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "Fd7fb5b8014",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "line": 351,
+          "summary": "The `home` frame now requires `needs`, but GLASSES_PROTOCOL was not bumped and the lens never checks the value. If the gateway does not send `needs` (one that predates SC-10526, or a mismatched deploy), `s.needs` becomes undefined. The header then says 'all clear', landing never fires, and the saved location fails to load on every restart.",
+          "class": "unvalidated-contract-field",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F7181b8b366",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/lens-state.test.ts",
+          "line": 415,
+          "summary": "No test checks the header on the new no-favorites screen. The only test of that branch passes needs 0 and looks at the body text alone, so a regression that drops the Inbox count ('N need you') or its brightness when nothing is starred would still pass, even though gallery frame 37 says the header should read '3 need you'.",
+          "class": "untested-changed-branch",
+          "verified": false,
+          "outcome": null
+        }
+      ]
+    },
+    "reused": {
+      "from": "trunk-push review --staged",
+      "tree": "d6f904db1801e58c155dc0e5fadd3a96ab6a742f",
+      "at": "2026-11-18T15:16:54.982Z"
+    }
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-18T15:19:45.319Z"
+}

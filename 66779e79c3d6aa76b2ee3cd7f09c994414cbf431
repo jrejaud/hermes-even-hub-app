@@ -1,0 +1,80 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "APPROVE",
+  "head": "66779e79c3d6aa76b2ee3cd7f09c994414cbf431",
+  "tree": "6083ac6ab9ac474be410f37c19620bb03dd91796",
+  "base": "311d4d0f2f62f7c4de25d3404b78d2b885434a32",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 0,
+    "outputSha256": "18c8ac12e18fafec9d7726cbac2a7223e4ce90928d3f4614595f7602ddbb1059"
+  },
+  "review": {
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· [advisory low] tests/e2e/gateway.e2e.test.ts:174 The new POST to /mock/words never checks the response. If the gateway mock lacks this endpoint or rejects the body, the failure is hidden and the test instead times out later with a misleading 'timed out waiting for the transcript on the confirm screen'. (F525e9ec656)",
+      "· [advisory low] tests/e2e/gateway.e2e.test.ts:202 The 'confirm screen to close' check passes on any header with 'Box disk at 91%' drawn after the last 'sending…', so a lens that stays on the dictation screen and moves to 'failed' (or back to 'send this?') still passes. That is the stuck-send regression this check is meant to catch. (F712ee32451)",
+      "· [advisory low] tests/e2e/gateway.e2e.test.ts:174 The POST to /mock/words that sets up the streamed-speech path never checks its response. If the endpoint is missing or rejects the call, the test keeps going and can pass on the mock's one-shot stt (which also returns 'dictated text'), so the streaming path it says it covers goes untested. (Fa187eeb3c9)",
+      "· round 1 (full): 3 new candidate(s), 0 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 1,
+      "mode": "full",
+      "reviewMd": null,
+      "findings": [
+        {
+          "id": "F525e9ec656",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/e2e/gateway.e2e.test.ts",
+          "line": 174,
+          "summary": "The new POST to /mock/words never checks the response. If the gateway mock lacks this endpoint or rejects the body, the failure is hidden and the test instead times out later with a misleading 'timed out waiting for the transcript on the confirm screen'.",
+          "class": "unchecked-fetch-response",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F712ee32451",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/e2e/gateway.e2e.test.ts",
+          "line": 202,
+          "summary": "The 'confirm screen to close' check passes on any header with 'Box disk at 91%' drawn after the last 'sending…', so a lens that stays on the dictation screen and moves to 'failed' (or back to 'send this?') still passes. That is the stuck-send regression this check is meant to catch.",
+          "class": "assertion-weaker-than-claim",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "Fa187eeb3c9",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/e2e/gateway.e2e.test.ts",
+          "line": 174,
+          "summary": "The POST to /mock/words that sets up the streamed-speech path never checks its response. If the endpoint is missing or rejects the call, the test keeps going and can pass on the mock's one-shot stt (which also returns 'dictated text'), so the streaming path it says it covers goes untested.",
+          "class": "unchecked-fixture-setup",
+          "verified": true,
+          "outcome": null
+        }
+      ]
+    },
+    "reused": {
+      "from": "trunk-push review --staged",
+      "tree": "6083ac6ab9ac474be410f37c19620bb03dd91796",
+      "at": "2026-11-19T07:50:34.360Z"
+    }
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-19T07:53:27.439Z"
+}
