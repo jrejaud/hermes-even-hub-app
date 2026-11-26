@@ -6,7 +6,7 @@
  *
  *   VITE_UI_GALLERY=1 npm run dev  +  npm run sim  +  npm run ui:capture
  */
-import type { GlassesServerFrame } from '../gateway/glasses';
+import type { GlassesServerFrame, GlassesVoice } from '../gateway/glasses';
 import { MENU_QUIET, gesture, initialState, menuPick, receive, reply, type Gesture, type State } from '../lens/state';
 import { HOME, HOME_NEEDS, ROWS, row, threadFrame, viewFrame } from './fake-gateway';
 
@@ -28,6 +28,11 @@ function press(s: State, ...gs: Gesture[]): State {
   return gs.reduce((acc, g) => gesture(acc, g, T).state, s);
 }
 
+/** A voice frame as the phone reports it (SC-11683), started at T so the clock reads 0:04 at GALLERY_NOW. */
+const voiceAt = (state: GlassesVoice['state'], over: Partial<GlassesVoice> = {}): GlassesServerFrame => ({
+  t: 'voice',
+  voice: { key: 'overlord/g2', title: 'G2 app plan', state, since: T, play: null, ...over },
+});
 const hello: GlassesServerFrame = { t: 'hello', protocol: 1, host: 'chiba', hosts: [] };
 const online = (): State => feed(initialState('connecting'), hello, { t: 'home', views: HOME, needs: HOME_NEEDS });
 const inInbox = (): State => feed(press(online(), 'tap'), viewFrame('inbox'));
@@ -467,5 +472,35 @@ export const LENS_FRAMES: GalleryFrame[] = [
     name: '41-corner-ask',
     looking_for: 'a session waiting on a question: the ? icon in the top-right corner, header text never runs under it',
     state: openRow(0),
+  },
+  // Voice mode on the lens (SC-11683): the phone drives, the lens mirrors; minimal screens (Jordan, 2026-11-25).
+  {
+    name: '42-voice-idle',
+    looking_for: 'voice mode idle: a completely blank lens, no header, no corner icon, nothing',
+    state: feed(online(), voiceAt('idle'), threadFrame('overlord/g2')),
+  },
+  {
+    name: '43-voice-you-talking',
+    looking_for: 'you talking: only the filled dot in the top-right corner and "0:04" just left of it; nothing else',
+    state: feed(online(), voiceAt('listening'), threadFrame('overlord/g2')),
+  },
+  {
+    name: '44-voice-thinking',
+    looking_for: 'agent thinking: only the three dots in the top-right corner; no text anywhere',
+    state: feed(online(), voiceAt('working'), threadFrame('overlord/g2')),
+  },
+  {
+    name: '45-voice-agent-talking',
+    looking_for: 'agent talking: the bot icon in the top-right corner and "0:07 / 0:21" just left of it; nothing else',
+    state: feed(
+      online(),
+      voiceAt('speaking', { play: { startedAt: T - 3_000, totalMs: 21_000 } }),
+      threadFrame('overlord/g2'),
+    ),
+  },
+  {
+    name: '46-voice-question',
+    looking_for: 'voice mode with a question waiting: the question and its options, the ? in the top-right corner',
+    state: feed(online(), voiceAt('idle', { key: 'chiba/deploy', title: 'Deploy' }), threadFrame('chiba/deploy')),
   },
 ];

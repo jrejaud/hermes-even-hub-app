@@ -26,6 +26,7 @@ import type { GlassesClientFrame as ClientFrame, GlassesServerFrame as ServerFra
 import { CONVO_LINES, conversationLines, glide, messageLines, scrollAnchor, topLine } from './conversation';
 // layout.ts imports this module too; shownWhole is only called inside functions, so the cycle is safe at load.
 import { shownWhole } from './layout';
+import { receiveVoice, voiceShown, type ShownVoice } from './voice';
 
 export type ViewFrame = Extract<GlassesServerFrame, { t: 'view' }>;
 export type ThreadFrame = Extract<GlassesServerFrame, { t: 'thread' }>;
@@ -113,6 +114,8 @@ export interface State {
   cursorIndex: Record<string, number>;
   /** A show-me card an agent pushed (SC-11683): drawn over the open screen until it expires or is dismissed. */
   card: ShownCard | null;
+  /** Voice mode on the phone, mirrored on the lens (SC-11683); null = off. */
+  voice: ShownVoice | null;
   banner: Banner | null;
   bannerCursor: 0 | 1;
   /** A short transient line for the header ("already answered"), with when it expires. */
@@ -154,6 +157,7 @@ export function initialState(conn: Conn = 'connecting'): State {
     cursor: {},
     cursorIndex: {},
     card: null,
+    voice: null,
     banner: null,
     bannerCursor: 0,
     notice: null,
@@ -402,6 +406,8 @@ export function receive(s: State, f: ServerFrame, now: number): { state: State; 
         effects: [],
       };
     }
+    case 'voice':
+      return receiveVoice(s, f.voice);
     case 'partial': {
       // Live words for the stream that is on screen; anything else is stale.
       const sc = top(s);
@@ -617,6 +623,10 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   if (s.card && !micLive(top(s)) && g !== 'hold' && g !== 'release') return cardGesture(s, g);
 
   const sc = top(s);
+
+  // The voice screen (SC-11683): a tap or double tap shows the conversation; a hold still dictates on the lens.
+  if (voiceShown(s) && s.voice && (g === 'tap' || g === 'double' || g === 'up' || g === 'down'))
+    return none({ ...s, voice: { ...s.voice, hidden: true } });
 
   if (sc.kind === 'dictate') return dictateGesture(s, sc, g, now, drawn);
   if (sc.kind === 'menu') return menuGesture(s, sc, g, drawn);

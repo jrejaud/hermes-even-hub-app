@@ -19,6 +19,7 @@ import { wrapTextLines } from './wrap';
 import { CONVO_LINES, conversationLines, convoWindow } from './conversation';
 import type { OsMenuItem } from './os-menu';
 import { HEADER_W, cardLayout, cornerOf, type Corner, type FreeBox, type ImageBox } from './card';
+import { voiceShown, voiceTag } from './voice';
 import {
   anchorFor,
   menuActions,
@@ -310,7 +311,8 @@ function message(left: string, right: string, text: string, rightBright: Bright 
 
 export function layout(s: State, now: number = Date.now()): LensFrame {
   // A banner (someone needs you) wins over a card, for drawing as for gestures (state.ts gesture order).
-  const f = s.card && !s.banner && !micLive(top(s)) ? cardFrame(s) : layoutRaw(s, now);
+  const f =
+    s.card && !s.banner && !micLive(top(s)) ? cardFrame(s) : voiceShown(s) ? voiceFrame(s, now) : layoutRaw(s, now);
   return {
     ...f,
     menu: menuActions(s),
@@ -561,6 +563,12 @@ function dictLabel(it: Item): string {
 }
 
 /** A show-me card over the open screen: the header keeps where you are; "pinned" once tapped. */
+/** Voice mode's minimal screen (SC-11683): only the corner and, when it adds something, one line beside it. */
+function voiceFrame(s: State, now: number): LensFrame {
+  const tag = s.voice ? voiceTag(s.voice.v, now) : '';
+  return { left: '', right: tag, leftBright: B.dim, rightBright: B.normal, body: [] };
+}
+
 function cardFrame(s: State): LensFrame {
   const sc = top(s);
   const left = sc.kind === 'home' || sc.kind === 'quiet' ? 'Aristo' : 'title' in sc ? sc.title : 'Aristo';
