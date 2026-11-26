@@ -1,23 +1,106 @@
 {
   "schema": "trunk-push/1",
-  "verdict": "REQUEST_CHANGES",
+  "verdict": "APPROVE",
   "head": "8db383c330700161cfb95cafa33c78df59433369",
   "tree": "f344f6708e6f6ec6a06ee33d07c2f730a4da2fb3",
   "base": "f67d461c9899479df97e5e755855a8f0f4f1502c",
   "gate": {
     "cmd": "npm run -s check:fast",
     "skipped": false,
-    "exit": 127,
-    "outputSha256": "6ede3c540590a9ecc93668a5f3f022c44cf8cc166c2db7910053cea6cd2a5f89"
+    "exit": 0,
+    "outputSha256": "a1dff942aabb538fa0fe51ce8deaf4fd65cd6171df0d731c5eef920ef21fcd76"
   },
   "review": {
-    "by": null,
-    "findings": []
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· [advisory medium] src/lens/card.ts:87 cornerOf lets voiceCorner decide the corner whenever any voice state exists, even when the voice screen is not shown (the wearer tapped it away, or another session, Home or a view is open), and because voiceCorner returns 'none' rather than null for idle/review/offline, the open session's 'working' thinking indicator below it can never be reached while voice mode is on. (F2321c397d2)",
+      "· [advisory medium] src/lens/layout.ts:568 The voice screen builds its header only from the voice tag and never calls connRight. When the socket drops, the lens shows no 'reconnecting…' and drops any notice text. Meanwhile s.voice is never cleared on disconnect, so a stale 'listening' talk timer keeps counting as if the phone were still live. (F3dfa2c4428)",
+      "· [advisory low] tests/lens-voice.test.ts:413 The question test says it checks 'the session ask screen with its options' but only asserts body.length > 0, which any non-empty screen (for example the plain conversation) would also pass. (Ffb8d2bb547)",
+      "· round 1 (full): 5 new candidate(s), 2 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 1,
+      "mode": "full",
+      "reviewMd": "../../.git/worktrees/sc-11683-voice-lens/harness/REVIEW.base.md",
+      "findings": [
+        {
+          "id": "F2321c397d2",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "medium",
+          "file": "src/lens/card.ts",
+          "line": 87,
+          "summary": "cornerOf lets voiceCorner decide the corner whenever any voice state exists, even when the voice screen is not shown (the wearer tapped it away, or another session, Home or a view is open), and because voiceCorner returns 'none' rather than null for idle/review/offline, the open session's 'working' thinking indicator below it can never be reached while voice mode is on.",
+          "class": "unscoped-override",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F3dfa2c4428",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "medium",
+          "file": "src/lens/layout.ts",
+          "line": 568,
+          "summary": "The voice screen builds its header only from the voice tag and never calls connRight. When the socket drops, the lens shows no 'reconnecting…' and drops any notice text. Meanwhile s.voice is never cleared on disconnect, so a stale 'listening' talk timer keeps counting as if the phone were still live.",
+          "class": "stale-state-hides-connection-failure",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F10bfcfcd7f",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "line": 628,
+          "summary": "The voice-screen gesture intercept also hides on 'up'/'down', and the header says a hold still dictates on the voice screen, but the tests only send a 'tap'. The swipe path and the hold-on-voice-screen path are never run.",
+          "class": "untested-changed-path",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "F4535b6241f",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/voice.ts",
+          "line": 289,
+          "summary": "Several receiveVoice branches have no test: 'off' for a different key is ignored, a voice frame for another session while one is open pushes a new screen, and an open menu is never pre-empted. voiceTag's 'offline' text is also untested, so regressions in any of these pass.",
+          "class": "untested-changed-path",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "Ffb8d2bb547",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/lens-voice.test.ts",
+          "line": 413,
+          "summary": "The question test says it checks 'the session ask screen with its options' but only asserts body.length > 0, which any non-empty screen (for example the plain conversation) would also pass.",
+          "class": "assertion-weaker-than-claim",
+          "verified": true,
+          "outcome": null
+        }
+      ]
+    },
+    "reused": {
+      "from": "trunk-push review --staged",
+      "tree": "f344f6708e6f6ec6a06ee33d07c2f730a4da2fb3",
+      "at": "2026-11-26T06:58:45.756Z"
+    }
   },
   "risk": {
     "class": "normal",
     "paths": []
   },
   "approval": null,
-  "at": "2026-11-26T06:59:49.142Z"
+  "at": "2026-11-26T07:00:19.252Z"
 }
