@@ -503,4 +503,11 @@ export const LENS_FRAMES: GalleryFrame[] = [
     looking_for: 'voice mode with a question waiting: the question and its options, the ? in the top-right corner',
     state: feed(online(), voiceAt('idle', { key: 'chiba/deploy', title: 'Deploy' }), threadFrame('chiba/deploy')),
   },
+  // SC-12130 (Jordan, 2026-11-27): a spoken reply rang out unanswered on the phone and never rings again; it waits.
+  {
+    name: '47-voice-missed-reply',
+    looking_for:
+      'voice mode idle with a missed reply waiting: only an envelope in the top-right corner; no header, no text',
+    state: feed(online(), voiceAt('idle', { waiting: 1 }), threadFrame('overlord/g2')),
+  },
 ];
