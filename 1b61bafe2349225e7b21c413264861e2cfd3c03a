@@ -1,0 +1,91 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "APPROVE",
+  "head": "1b61bafe2349225e7b21c413264861e2cfd3c03a",
+  "tree": "65ff8150909be190471a15283928c21301f60bb3",
+  "base": "cc71aff9b41be0d7bc48f86a7d09346bad4952ba",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 0,
+    "outputSha256": "91b17b5dd3c204b873d5c745776f2fc7c43e005e84f85304700b6bd56fccb72a"
+  },
+  "review": {
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· [advisory low] src/lens/state.ts:699 The emptiness guard only runs when the menu is opened. A menu that is already open can still go empty if a 'thread' frame arrives showing the session as done and not working (for example, it was marked done on another client). That leaves a blank action screen where a tap does nothing. Before this change, 'close' was always in the list, so the menu was never empty. (Faee5dd156a)",
+      "· round 1 (full): 4 new candidate(s), 3 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 1,
+      "mode": "full",
+      "reviewMd": "../../.git/worktrees/sc-12236-no-close/harness/REVIEW.base.md",
+      "findings": [
+        {
+          "id": "Faee5dd156a",
+          "round": 1,
+          "tier": "advisory",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "line": 699,
+          "summary": "The emptiness guard only runs when the menu is opened. A menu that is already open can still go empty if a 'thread' frame arrives showing the session as done and not working (for example, it was marked done on another client). That leaves a blank action screen where a tap does nothing. Before this change, 'close' was always in the list, so the menu was never empty.",
+          "class": "empty-menu-after-state-change",
+          "verified": true,
+          "outcome": null
+        },
+        {
+          "id": "F6531a19a76",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "line": 261,
+          "summary": "The lens no longer sends `patch {closed:true}`, and a Done session at rest now has no menu at all. A session the hub keeps listed with the 'done' mark can't be closed from the lens any more, so it stays in the list for good, while the protocol still defines `closed` and the gateway still accepts it.",
+          "class": "protocol-contract-drift",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "Fabc6068743",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/lens-state.test.ts",
+          "line": 275,
+          "summary": "The new no-menu guard checks the drawn state (items(drawn, menu)), but the only test goes through press(), where drawn and live are the same state; if the guard were changed to read the live state `s`, no test would fail.",
+          "class": "untested-drawn-vs-live",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "F3d60d9d8df",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "src/lens/state.ts",
+          "line": 262,
+          "summary": "Removing the always-present 'close' item means a menu that is already open can now be left with no items when a live frame marks the session done; nothing tests that case, so an empty, cursorless menu would go uncaught.",
+          "class": "untested-empty-menu",
+          "verified": false,
+          "outcome": null
+        }
+      ]
+    },
+    "reused": {
+      "from": "trunk-push review --staged",
+      "tree": "65ff8150909be190471a15283928c21301f60bb3",
+      "at": "2026-11-27T08:36:11.728Z"
+    }
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-27T08:39:01.119Z"
+}
