@@ -478,7 +478,6 @@ function optionLabel(s: State, key: string, it: Item): string {
 function actionLabel(it: Item): string {
   if (it.kind === 'stop') return 'Stop';
   if (it.kind === 'done') return 'Mark done';
-  if (it.kind === 'close') return 'Set aside';
   return '';
 }
 

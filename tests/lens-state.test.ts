@@ -257,7 +257,8 @@ describe('conversation and its menu (v2 SC-9703)', () => {
     s = { ...s, thread: { ...s.thread!, row: { ...s.thread!.row, mark: 'working' } } };
     const m = press(s, 'tap');
     expect(top(m).kind).toBe('menu');
-    expect(items(m).map((i) => i.kind)).toEqual(['stop', 'done', 'close']);
+    // No Set aside: Close was folded into Mark done (SC-12236).
+    expect(items(m).map((i) => i.kind)).toEqual(['stop', 'done']);
     const r = gesture(m, 'tap', T);
     expect(sends(r)).toEqual([{ t: 'interrupt', reqId: expect.any(String), key: 'overlord/g2' }]);
     expect(top(r.state)).toMatchObject({ kind: 'session', key: 'overlord/g2' });
@@ -269,6 +270,14 @@ describe('conversation and its menu (v2 SC-9703)', () => {
     const r = gesture(press(m, ...Array<Gesture>(at).fill('down')), 'tap', T);
     expect(sends(r)[0]).toMatchObject({ t: 'patch', key: 'overlord/g2', done: true });
     expect(top(r.state).kind).toBe('view');
+  });
+
+  it('a Done session at rest has no menu: no Set aside (SC-12236), and the tap opens nothing', () => {
+    let s = open(3);
+    s = { ...s, thread: { ...s.thread!, row: { ...s.thread!.row, mark: 'done' } } };
+    const m = press(s, 'tap');
+    expect(top(m)).toMatchObject({ kind: 'session', key: 'overlord/g2' });
+    expect(items(s, { kind: 'menu', key: 'overlord/g2', title: '' })).toEqual([]);
   });
 });
 
