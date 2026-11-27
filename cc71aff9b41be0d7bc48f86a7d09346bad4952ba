@@ -1,0 +1,59 @@
+{
+  "schema": "trunk-push/1",
+  "verdict": "APPROVE",
+  "head": "cc71aff9b41be0d7bc48f86a7d09346bad4952ba",
+  "tree": "cd5acdd95b8d912a37d93ff189822b2a5aa0c607",
+  "base": "8db383c330700161cfb95cafa33c78df59433369",
+  "gate": {
+    "cmd": "npm run -s check:fast",
+    "skipped": false,
+    "exit": 0,
+    "outputSha256": "2c9227aff430afb7d41cba3c984750c0d99f9ad470d04965a75badce1e1f2885"
+  },
+  "review": {
+    "by": "harness gate review (claude -p, fresh context)",
+    "findings": [
+      "· round 1 (full): 2 new candidate(s), 2 dropped by the verifier"
+    ],
+    "report": {
+      "promptHash": "6c9bc873141b",
+      "round": 1,
+      "mode": "full",
+      "reviewMd": "../../.git/worktrees/land-envelope/harness/REVIEW.base.md",
+      "findings": [
+        {
+          "id": "F8c11a940b4",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/lens-voice.test.ts",
+          "line": 114,
+          "summary": "The test named 'talking or thinking own the corner over the envelope' only checks listening and working together with waiting>0; nothing checks speaking with waiting>0, so moving the waiting check above the `speaking` branch in voiceCorner would go unnoticed.",
+          "class": "untested-precedence-branch",
+          "verified": false,
+          "outcome": null
+        },
+        {
+          "id": "Ff765691c79",
+          "round": 1,
+          "tier": "dropped",
+          "pass": "bugs",
+          "severity": "low",
+          "file": "tests/lens-voice.test.ts",
+          "line": 105,
+          "summary": "The test and its comment say the envelope shows 'on every screen'/'elsewhere', but the only other screen checked is the same session's conversation after a tap; nothing checks Home or another session.",
+          "class": "test-claims-more-than-checked",
+          "verified": false,
+          "outcome": null
+        }
+      ]
+    }
+  },
+  "risk": {
+    "class": "normal",
+    "paths": []
+  },
+  "approval": null,
+  "at": "2026-11-27T08:09:02.205Z"
+}
