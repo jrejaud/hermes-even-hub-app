@@ -13,7 +13,7 @@ import type { GlassesCard } from '../gateway/glasses';
 import { liveAsk, micLive, threadFor, top, type ShownCard, type State } from './state';
 import { voiceCorner } from './voice';
 
-export type Corner = 'none' | 'you' | 'thinking' | 'agent' | 'ask' | 'ring';
+export type Corner = 'none' | 'you' | 'thinking' | 'agent' | 'ask' | 'ring' | 'mail';
 
 /** Pixel art, one string per row, '#' = lit. Drawn at 2x. Same bitmaps as the mockups (aristo-v2 docs/hackathon). */
 export const ICONS: Record<Exclude<Corner, 'none'>, string[]> = {
@@ -56,6 +56,18 @@ export const ICONS: Record<Exclude<Corner, 'none'>, string[]> = {
     '.........',
     '...##....',
     '...##....',
+  ],
+  // An envelope (SC-12130, Jordan 2026-11-27): a spoken reply rang out unanswered on the phone and waits for him.
+  mail: [
+    '#############',
+    '##.........##',
+    '#.#.......#.#',
+    '#..#.....#..#',
+    '#...#...#...#',
+    '#....###....#',
+    '#...........#',
+    '#...........#',
+    '#############',
   ],
   ring: [
     '#...........#',

@@ -204,6 +204,8 @@ export interface GlassesVoice {
   since: number;
   /** The reply playing, while `speaking`; null otherwise. */
   play: GlassesVoicePlay | null;
+  /** SC-12130: spoken replies that rang out unanswered (Answer mode) and wait for him; the corner shows an envelope while above 0. */
+  waiting?: number;
 }
 
 export type GlassesServerFrame =

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { HOME, HOME_NEEDS, threadFrame } from '../src/dev/fake-gateway';
 import type { GlassesServerFrame, GlassesVoice } from '../src/gateway/glasses';
-import { cornerOf } from '../src/lens/card';
+import { CORNER, ICONS, cornerOf } from '../src/lens/card';
 import { layout } from '../src/lens/layout';
 import { gesture, initialState, receive, top, type State } from '../src/lens/state';
 import { voiceShown, voiceTag, voiceTicking } from '../src/lens/voice';
@@ -91,5 +91,32 @@ describe('voice mode on the lens', () => {
     const before = top(s).kind;
     s = feed(s, v('working', { key: 'box/churn' }));
     expect(top(s).kind).toBe(before);
+  });
+
+  // SC-12130 (Jordan, 2026-11-27): a spoken reply rang out unanswered on the phone; it never rings again, so the lens shows an
+  // envelope in the corner while it waits, on every screen, until he hears it.
+  it('a missed reply waiting: an envelope in the corner, on the voice screen and elsewhere; gone once it is heard', () => {
+    let s = feed(online(), v('idle', { waiting: 1 }), threadFrame('overlord/g2'));
+    expect(layout(s, T).corner).toBe('mail');
+    s = gesture(s, 'tap', T).state; // the conversation instead of the voice screen: still there
+    expect(cornerOf(s)).toBe('mail');
+    s = feed(s, v('idle', { waiting: 0 }));
+    expect(cornerOf(s)).toBe('none');
+  });
+
+  it('talking or thinking own the corner over the envelope; it comes back after', () => {
+    let s = feed(online(), v('listening', { waiting: 2 }), threadFrame('overlord/g2'));
+    expect(cornerOf(s)).toBe('you');
+    s = feed(s, v('working', { waiting: 2 }));
+    expect(cornerOf(s)).toBe('thinking');
+    s = feed(s, v('idle', { waiting: 2 }));
+    expect(cornerOf(s)).toBe('mail');
+  });
+
+  it('the envelope bitmap fits the corner box at 2x', () => {
+    const rows = ICONS.mail;
+    expect(rows.every((r) => r.length === rows[0]!.length)).toBe(true);
+    expect(rows[0]!.length * 2).toBeLessThanOrEqual(CORNER.w);
+    expect(rows.length * 2).toBeLessThanOrEqual(CORNER.h);
   });
 });

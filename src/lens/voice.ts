@@ -59,14 +59,16 @@ export function voiceTag(v: GlassesVoice, now: number): string {
   return '';
 }
 
-/** The corner while voice mode is on: its state owns it (idle shows nothing, Jordan 2026-11-25); null = voice mode is off. */
+/** The corner while voice mode is on: its state owns it (idle shows nothing, Jordan 2026-11-25, unless a missed reply waits:
+ *  the envelope); null = voice mode is off. */
 export function voiceCorner(s: State): Corner | null {
   const v = s.voice?.v;
   if (!v) return null;
   if (v.state === 'listening') return 'you';
   if (v.state === 'speaking') return 'agent';
   if (v.state === 'working') return 'thinking';
-  return 'none';
+  // A reply rang out unanswered and waits (SC-12130, Jordan 2026-11-27): an envelope, until he hears it. Talking or thinking win.
+  return (v.waiting ?? 0) > 0 ? 'mail' : 'none';
 }
 
 /** A timer is running on the voice screen, so the shell redraws it every tick. */
