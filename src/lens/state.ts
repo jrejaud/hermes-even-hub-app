@@ -211,7 +211,6 @@ export type Item =
   | { id: string; kind: 'option'; index: number }
   | { id: string; kind: 'stop' }
   | { id: string; kind: 'done' }
-  | { id: string; kind: 'close' }
   | { id: string; kind: 'send' }
   | { id: string; kind: 'redo' }
   | { id: string; kind: 'cancel' };
@@ -259,8 +258,8 @@ export function items(s: State, sc: Screen = top(s)): Item[] {
     const t = threadFor(s, sc.key);
     const acts: Item[] = [];
     if (t?.row.mark === 'working') acts.push({ id: 'stop', kind: 'stop' });
+    // Mark done is the one way to end a session: Aristo folded Close ("Set aside") into it (SC-12236, 2026-11-27).
     if (t?.row.mark !== 'done') acts.push({ id: 'done', kind: 'done' });
-    acts.push({ id: 'close', kind: 'close' });
     return acts;
   }
   // dictation
@@ -695,8 +694,9 @@ export function gesture(live: State, g: Gesture, now: number, drawn: State = liv
   // Reading behind an ask: a tap goes back to the options (never answers what is not on screen).
   if (sc.kind === 'session' && drawn.peek[sc.key] !== undefined) return none(withPeek(s, sc.key, undefined));
   if (sc.kind === 'session' && !liveAsk(drawn, sc.key)) {
-    // The conversation's actions live behind a tap.
+    // The conversation's actions live behind a tap; a Done session at rest has none, so nothing opens.
     const menu: Screen = { kind: 'menu', key: sc.key, title: sc.title };
+    if (!items(drawn, menu).length) return none(s);
     return none(resetCursor(push(s, menu), menu));
   }
   const shown = items(drawn, sc);
@@ -749,13 +749,10 @@ function menuGesture(s: State, m: Extract<Screen, { kind: 'menu' }>, g: Gesture,
       pending: { [r.reqId]: { kind: 'interrupt' } },
     };
   }
-  if (it.kind === 'done' || it.kind === 'close') {
-    // Done or set aside: back past the session to the list.
+  if (it.kind === 'done') {
+    // Done: back past the session to the list.
     const next = pop(pop(r.s));
-    const frame: ClientFrame =
-      it.kind === 'done'
-        ? { t: 'patch', reqId: r.reqId, key: m.key, done: true }
-        : { t: 'patch', reqId: r.reqId, key: m.key, closed: true };
+    const frame: ClientFrame = { t: 'patch', reqId: r.reqId, key: m.key, done: true };
     return {
       state: next,
       effects: [{ kind: 'send', frame }, ...navEffects(next)],
